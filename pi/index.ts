@@ -231,6 +231,11 @@ export default function (pi: ExtensionAPI) {
           await loadRoleInstructions(mySession, agent.roleName);
         }
         await startAgent(ctx);
+
+        // Restore saved model preference on recovery
+        if (agent.model) {
+          await trySetModel(ctx, agent.model);
+        }
         return;
       }
     }
@@ -1355,18 +1360,10 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    // If switching agents, go offline first
-    const previousAgentId = myId;
-    if (myId && mySession) {
-      await goOffline(mySession, myId);
-      stopAgent();
-    }
-
-    mySession = project;
-
-    // 2. Select agent (no creation -- use /amux manage)
-    const registry = await readRegistry(mySession);
+    // 2. Select agent (validation only — no state changes yet)
+    const registry = await readRegistry(project);
     const allAgents = Object.values(registry);
+    const previousAgentId = myId;
     const offlineAgents = allAgents.filter((a) => !isEffectivelyOnline(a) && a.id !== previousAgentId);
     const onlineAgents = allAgents.filter(isEffectivelyOnline);
 
@@ -1397,6 +1394,14 @@ export default function (pi: ExtensionAPI) {
     const agent = offlineAgents.find((a) => a.name === selectedName);
     if (!agent) { ctx.ui.notify("Agent not found.", "error"); return; }
 
+    // 3. COMMIT — selection confirmed, safe to transition state
+    //    Previous agent goes offline only after new target is validated.
+    if (myId && mySession) {
+      await goOffline(mySession, myId);
+      stopAgent();
+    }
+
+    mySession = project;
     myId = agent.id;
     myName = agent.name;
     myRole = agent.role;
@@ -1992,18 +1997,6 @@ export default function (pi: ExtensionAPI) {
     } catch {
       return null;
     }
-  }
-
-  async function applyDefaultModel(ctx: ExtensionContext): Promise<void> {
-    const modelStr = process.env.AMUX_MODEL;
-    if (!modelStr) {
-      if (mySession) {
-        const config = await readSessionConfig(mySession);
-        if (config.model) await trySetModel(ctx, config.model);
-      }
-      return;
-    }
-    await trySetModel(ctx, modelStr);
   }
 
   async function trySetModel(ctx: ExtensionContext, modelStr: string): Promise<void> {

@@ -900,3 +900,77 @@ describe("Heartbeat TTL and stale agents", () => {
     assert.equal(isEffectivelyOnline(staleAgent!), false, "But effectively offline");
   });
 });
+
+describe("Join flow transactional guarantees", () => {
+  // The /amux join flow in pi/index.ts is refactored to be transactional:
+  //
+  // BEFORE (non-transactional):
+  //   1. Select project
+  //   2. goOffline + stopAgent + set mySession  ← state changed before validation
+  //   3. Select agent  ← cancelling here left previous agent offline
+  //
+  // AFTER (transactional):
+  //   1. Select project            ← cancel returns without state changes
+  //   2. Select agent              ← cancel returns without state changes
+  //   3. COMMIT: offline old → activate new  ← only after user confirms
+  //
+  // Manual test steps for Pi UI flow:
+  //   1. Start Pi with an active amux agent (AgentA in ProjectX)
+  //   2. /amux join → select a project → cancel at agent selection
+  //      → Verify AgentA is still online, session unchanged
+  //   3. /amux join → cancel at project selection
+  //      → Verify AgentA is still online, session unchanged
+  //   4. /amux join → complete both selections
+  //      → Verify AgentA goes offline, new agent goes online
+  //
+  // Session recovery model restore:
+  //   1. Join as an agent with a saved model preference
+  //   2. Reload the Pi session (session_start re-fires)
+  //   3. Verify the model preference is re-applied on recovery
+
+  const session = testSession("join-txn");
+  after(() => cleanupSession(session));
+
+  it("core primitives support safe online/offline transitions", async () => {
+    const id1 = newAgentId();
+    const id2 = newAgentId();
+
+    await registerAgent(session, {
+      id: id1, name: "AgentA", session,
+      role: "dev", cwd: "/tmp", pid: 0, status: "offline",
+      registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+    });
+    await registerAgent(session, {
+      id: id2, name: "AgentB", session,
+      role: "dev", cwd: "/tmp", pid: 0, status: "offline",
+      registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+    });
+
+    // AgentA goes online (simulates join)
+    await goOnline(session, id1, process.pid);
+    assert.ok(isEffectivelyOnline((await findById(session, id1))!));
+
+    // AgentB is not affected by AgentA’s transition
+    assert.equal(isEffectivelyOnline((await findById(session, id2))!), false);
+
+    // Switch: AgentA offline, AgentB online (simulates transactional join switch)
+    await goOffline(session, id1);
+    await goOnline(session, id2, process.pid);
+    assert.equal(isEffectivelyOnline((await findById(session, id1))!), false);
+    assert.ok(isEffectivelyOnline((await findById(session, id2))!));
+  });
+
+  it("agent model preference is preserved for recovery", async () => {
+    const id = newAgentId();
+    const model = "anthropic/claude-sonnet-4";
+    await registerAgent(session, {
+      id, name: "ModelAgent", session,
+      role: "dev", cwd: "/tmp", pid: 0, status: "offline",
+      model,
+      registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+    });
+    // Verify model is persisted and readable for recovery
+    const agent = await findById(session, id);
+    assert.equal(agent!.model, model);
+  });
+});
