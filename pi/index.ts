@@ -18,7 +18,12 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { FSWatcher } from "node:fs";
 import { mkdirSync, readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import {
+  getSessionsDir,
+  sessionDir,
+  sessionFile,
+  listSessions,
+} from "../core/storage";
 import { BUILTIN_ROLES } from "../core/index";
 import {
   type AgentInfo,
@@ -1392,13 +1397,7 @@ export default function (pi: ExtensionAPI) {
     let project = projectArg.trim();
 
     if (!project) {
-      const sessionsDir = join(homedir(), ".amux", "sessions");
-      let existing: string[] = [];
-      try {
-        existing = readdirSync(sessionsDir, { withFileTypes: true })
-          .filter((d) => d.isDirectory())
-          .map((d) => d.name);
-      } catch {}
+      const existing = await listSessions();
 
       if (existing.length === 0) {
         ctx.ui.notify("No projects yet. Use /amux manage to create one.", "info");
@@ -1411,9 +1410,8 @@ export default function (pi: ExtensionAPI) {
     }
 
     // Verify project exists
-    const sessionsDir = join(homedir(), ".amux", "sessions");
     const { existsSync } = await import("node:fs");
-    if (!existsSync(join(sessionsDir, project))) {
+    if (!existsSync(sessionDir(project))) {
       ctx.ui.notify(`Project "${project}" not found. Use /amux manage to create it.`, "info");
       return;
     }
@@ -1533,13 +1531,7 @@ export default function (pi: ExtensionAPI) {
   async function resolveProjectForManage(ctx: ExtensionContext): Promise<string | null> {
     if (mySession) return mySession;
 
-    const sessionsDir = join(homedir(), ".amux", "sessions");
-    let projects: string[] = [];
-    try {
-      projects = readdirSync(sessionsDir, { withFileTypes: true })
-        .filter((d) => d.isDirectory())
-        .map((d) => d.name);
-    } catch {}
+    const projects = await listSessions();
 
     if (projects.length === 0) {
       ctx.ui.notify("No projects yet. Create one with /amux manage > Projects.", "info");
@@ -1552,13 +1544,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   async function manageProjects(ctx: ExtensionContext): Promise<void> {
-    const sessionsDir = join(homedir(), ".amux", "sessions");
-    let projects: string[] = [];
-    try {
-      projects = readdirSync(sessionsDir, { withFileTypes: true })
-        .filter((d) => d.isDirectory())
-        .map((d) => d.name);
-    } catch {}
+    const projects = await listSessions();
 
     const NEW_PROJECT = "+ New project";
     const options = [...projects, NEW_PROJECT];
@@ -1583,7 +1569,7 @@ export default function (pi: ExtensionAPI) {
 
       // ---- EXECUTE ALL ACTIONS ----
       const { mkdirSync: mkDir } = await import("node:fs");
-      mkDir(join(sessionsDir, name), { recursive: true });
+      mkDir(sessionDir(name), { recursive: true });
 
       if (needsGitInit) {
         await pi.exec("git", ["init"], { timeout: 5000 });
@@ -1637,7 +1623,7 @@ export default function (pi: ExtensionAPI) {
       if (!confirm) { ctx.ui.notify("Cancelled.", "info"); return; }
 
       const { rmSync } = await import("node:fs");
-      rmSync(join(sessionsDir, project), { recursive: true, force: true });
+      rmSync(sessionDir(project), { recursive: true, force: true });
       ctx.ui.notify(`Deleted project "${project}".`, "info");
 
     } else if (action === "Rename") {
@@ -1649,11 +1635,11 @@ export default function (pi: ExtensionAPI) {
       if (!newName || newName === project) { ctx.ui.notify("Cancelled.", "info"); return; }
 
       const { renameSync, readFileSync: readF, writeFileSync: writeF } = await import("node:fs");
-      renameSync(join(sessionsDir, project), join(sessionsDir, newName));
+      renameSync(sessionDir(project), sessionDir(newName));
 
       // Update session field in agent records
       try {
-        const agentsPath = join(sessionsDir, newName, "agents.json");
+        const agentsPath = sessionFile(newName, "agents.json");
         const agents = JSON.parse(readF(agentsPath, "utf8"));
         for (const agent of Object.values(agents) as AgentInfo[]) {
           agent.session = newName;
@@ -2036,15 +2022,13 @@ export default function (pi: ExtensionAPI) {
 
   // -- Artifacts ------------------------------------------------
 
-  const AMUX_BASE = join(homedir(), ".amux", "sessions");
-
   function projectArtifactsDir(): string {
-    return join(AMUX_BASE, mySession!, "artifacts", "project");
+    return sessionFile(mySession!, "artifacts", "project");
   }
 
 
   function agentArtifactsDir(agentId: string): string {
-    return join(AMUX_BASE, mySession!, "artifacts", "agents", agentId);
+    return sessionFile(mySession!, "artifacts", "agents", agentId);
   }
 
   function ensureArtifactDirs(): void {

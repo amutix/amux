@@ -148,6 +148,15 @@ Sync runs `git fetch origin` followed by `git rebase origin/<mainBranch>`, where
 
 ## Session Files
 
+Default root: `~/.amux/sessions/`. Override with environment variables:
+
+| Variable | Effect |
+|----------|--------|
+| `AMUX_SESSIONS_DIR` | Use this path as the sessions directory (highest priority) |
+| `AMUX_HOME` | Use `$AMUX_HOME/sessions` as the sessions directory |
+
+Both core modules and the Pi adapter resolve the same root.
+
 ```
 ~/.amux/sessions/<project>/
 ├── agents.json             Agent registry (UUID-keyed)
