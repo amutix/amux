@@ -78,6 +78,7 @@ import {
   readBacklog,
   writeBacklog,
   addTask,
+  getTask,
   nextTaskId,
   unmetDependencies,
 } from "../core/backlog";
@@ -1636,44 +1637,61 @@ export default function (pi: ExtensionAPI) {
       .map((s) => `${counts[s]} ${s}`)
       .join(" \u00b7 ");
 
+    // Helpers
+    const marker = (t: Task) => {
+      switch (t.status) {
+        case "done": return "\u2713";
+        case "in-progress": return "\u25b6";
+        case "blocked": return "\u26a0";
+        case "assigned": return "\u2192";
+        default: return "\u25cb";
+      }
+    };
+    const typeLabel = (t: Task) => t.itemType && t.itemType !== "task" ? ` (${t.itemType})` : "";
+    const assigneeStr = (t: Task) =>
+      (t.status === "in-progress" || t.status === "assigned") && t.assignee ? ` \u2014 ${t.assignee}` : "";
+    const blockedStr = (t: Task) =>
+      t.status === "blocked" && t.blockedReason ? `: ${t.blockedReason}` : "";
+
+    // Build children lookup, sorted by order then backlog position
+    const childrenOf = new Map<string, Task[]>();
+    for (const t of tasks) {
+      if (t.parentId) {
+        const siblings = childrenOf.get(t.parentId) || [];
+        siblings.push(t);
+        childrenOf.set(t.parentId, siblings);
+      }
+    }
+    for (const [, children] of childrenOf) {
+      children.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity));
+    }
+
     let out = `Project: ${session}\n`;
     out += `${"\u2500".repeat(40)}\n`;
     out += `${statusLine}  (${total} total)\n`;
 
-    // In-progress
-    const active = tasks.filter((t) => t.status === "in-progress");
-    if (active.length > 0) {
-      out += `\n\u25b6 Active:\n`;
-      for (const t of active) {
-        const assignee = t.assignee ? ` \u2014 ${t.assignee}` : "";
-        const type = t.itemType && t.itemType !== "task" ? ` (${t.itemType})` : "";
-        out += `  ${t.id}${type}  ${t.title}${assignee}\n`;
+    // Render top-level items (those without parentId)
+    const topLevel = tasks.filter((t) => !t.parentId);
+    const hasHierarchy = childrenOf.size > 0;
+
+    if (hasHierarchy) out += "\n";
+
+    for (const t of topLevel) {
+      const children = childrenOf.get(t.id);
+      if (children && children.length > 0) {
+        // Parent with indented children
+        const childDone = children.filter((c) => c.status === "done").length;
+        out += `\u25b8 ${t.id}${typeLabel(t)}  ${t.title} [${childDone}/${children.length}]\n`;
+        for (const c of children) {
+          out += `    ${marker(c)} ${c.id}  ${c.title}${assigneeStr(c)}${blockedStr(c)}\n`;
+        }
+      } else {
+        // Standalone item
+        out += `${marker(t)} ${t.id}${typeLabel(t)}  ${t.title}${assigneeStr(t)}${blockedStr(t)}\n`;
       }
     }
 
-    // Blocked
-    const blocked = tasks.filter((t) => t.status === "blocked");
-    if (blocked.length > 0) {
-      out += `\n\u26a0 Blocked:\n`;
-      for (const t of blocked) {
-        const reason = t.blockedReason ? `: ${t.blockedReason}` : "";
-        out += `  ${t.id}  ${t.title}${reason}\n`;
-      }
-    }
-
-    // Next actionable (todo + deps met, max 5)
-    const next = tasks
-      .filter((t) => t.status === "todo" && unmetDependencies(t, tasks).length === 0)
-      .slice(0, 5);
-    if (next.length > 0) {
-      out += `\n\u25c6 Next:\n`;
-      for (const t of next) {
-        const type = t.itemType && t.itemType !== "task" ? ` (${t.itemType})` : "";
-        out += `  ${t.id}${type}  ${t.title}\n`;
-      }
-    }
-
-    // Recent completions (last 3)
+    // Recently done (last 3)
     const done = tasks
       .filter((t) => t.status === "done" && t.completedAt)
       .sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""))
@@ -1685,20 +1703,6 @@ export default function (pi: ExtensionAPI) {
           ? formatDuration(Date.now() - new Date(t.completedAt).getTime()) + " ago"
           : "";
         out += `  ${t.id}  ${t.title}${ago ? ` (${ago})` : ""}\n`;
-      }
-    }
-
-    // Initiative/parent grouping
-    const parents = tasks.filter((t) =>
-      tasks.some((c) => c.parentId === t.id)
-    );
-    if (parents.length > 0) {
-      out += `\nInitiatives:\n`;
-      for (const p of parents) {
-        const children = tasks.filter((c) => c.parentId === p.id);
-        const childDone = children.filter((c) => c.status === "done").length;
-        const type = p.itemType && p.itemType !== "task" ? ` (${p.itemType})` : "";
-        out += `  ${p.id}${type}  ${p.title} [${childDone}/${children.length} done]\n`;
       }
     }
 

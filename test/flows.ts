@@ -1522,5 +1522,50 @@ describe("Progress summary data patterns", () => {
   //   1. /amux join a project with mixed backlog
   //   2. /amux progress → see status counts, active, blocked, next, done
   //   3. amux_task({ action: "summary" }) → same compact view
-  //   4. Verify initiatives section appears when items have parentId
+  //   4. Verify parent items show with indented children and [N/M] counts
+  //
+  // Manual test for parentId validation fix:
+  //   amux_task({ action: "add", title: "Child", parentId: "TASK-01" })
+  //   → should succeed if TASK-01 exists (previously threw getTask is not defined)
+  //   amux_task({ action: "add", title: "Child", parentId: "NONEXISTENT" })
+  //   → should fail with "Parent item NONEXISTENT not found"
+
+  it("parent/child grouping supports hierarchical progress rendering", async () => {
+    const session = testSession("hier-progress");
+    const now = new Date().toISOString();
+    const base = { createdBy: "Test", createdAt: now, updatedAt: now };
+
+    // Create parent initiative
+    const parent = await addTask(session, {
+      title: "Auth system", status: "todo", itemType: "initiative", ...base,
+    });
+    // Create ordered children
+    await addTask(session, { title: "Login", status: "todo", parentId: parent.id, order: 1, ...base });
+    await addTask(session, { title: "Signup", status: "todo", parentId: parent.id, order: 2, ...base });
+    await addTask(session, { title: "OAuth", status: "todo", parentId: parent.id, order: 3, ...base });
+    // Complete one child
+    await updateTask(session, "TASK-02", { status: "done", completedAt: now });
+
+    const tasks = await readBacklog(session);
+
+    // Children grouping
+    const children = tasks
+      .filter((t) => t.parentId === parent.id)
+      .sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity));
+    assert.equal(children.length, 3);
+    assert.equal(children[0]!.title, "Login");
+    assert.equal(children[2]!.title, "OAuth");
+
+    // Progress counts
+    const childDone = children.filter((c) => c.status === "done").length;
+    assert.equal(childDone, 1);
+    assert.equal(`[${childDone}/${children.length}]`, "[1/3]");
+
+    // Standalone items not affected
+    const topLevel = tasks.filter((t) => !t.parentId);
+    assert.equal(topLevel.length, 1);
+    assert.equal(topLevel[0]!.itemType, "initiative");
+
+    cleanupSession(session);
+  });
 });
