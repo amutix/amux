@@ -9,9 +9,11 @@
  *   journal.jsonl — one JSON object per line (append-only)
  */
 
-import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { homedir } from "node:os";
+import {
+  sessionFile,
+  readJsonlSync,
+  appendJsonlSync,
+} from "./storage.ts";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -31,22 +33,17 @@ export const JOURNAL_WINDOW_SIZE = 10;
 
 // ─── Paths ───────────────────────────────────────────────────
 
-const AMUX_DIR = join(homedir(), ".amux", "sessions");
-
 function journalPath(session: string): string {
-  return join(AMUX_DIR, session, "journal.jsonl");
+  return sessionFile(session, "journal.jsonl");
 }
 
 // ─── Journal Operations ─────────────────────────────────────
 
 /**
  * Append a journal entry to the session log.
- * Uses appendFileSync — fast, no atomic write needed for append-only.
  */
 export function appendEntry(session: string, entry: JournalEntry): void {
-  const path = journalPath(session);
-  mkdirSync(dirname(path), { recursive: true });
-  appendFileSync(path, JSON.stringify(entry) + "\n", "utf8");
+  appendJsonlSync(journalPath(session), entry);
 }
 
 /**
@@ -61,21 +58,7 @@ export function readEntries(
   limit?: number,
   type?: JournalEntry["type"]
 ): JournalEntry[] {
-  const path = journalPath(session);
-  let lines: string[];
-  try {
-    lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
-  } catch {
-    return [];
-  }
-
-  let entries: JournalEntry[] = lines.map((line) => {
-    try {
-      return JSON.parse(line) as JournalEntry;
-    } catch {
-      return null;
-    }
-  }).filter((e): e is JournalEntry => e !== null);
+  let entries = readJsonlSync<JournalEntry>(journalPath(session));
 
   if (type) {
     entries = entries.filter((e) => e.type === type);

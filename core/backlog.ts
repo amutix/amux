@@ -9,10 +9,11 @@
  *   backlog.json — Task[] (ordered array)
  */
 
-import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
-import { join, dirname } from "node:path";
-import { homedir } from "node:os";
-import { randomBytes } from "node:crypto";
+import {
+  sessionFile,
+  readJson,
+  atomicWriteJson,
+} from "./storage.ts";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -36,28 +37,8 @@ export type Backlog = Task[];
 
 // ─── Paths ───────────────────────────────────────────────────
 
-const AMUX_DIR = join(homedir(), ".amux", "sessions");
-
 function backlogPath(session: string): string {
-  return join(AMUX_DIR, session, "backlog.json");
-}
-
-// ─── Atomic I/O ──────────────────────────────────────────────
-
-async function atomicWriteJson(path: string, data: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const tmp = path + "." + randomBytes(4).toString("hex") + ".tmp";
-  await writeFile(tmp, JSON.stringify(data, null, 2), "utf8");
-  await rename(tmp, path);
-}
-
-async function readJson<T>(path: string, fallback: T): Promise<T> {
-  try {
-    const raw = await readFile(path, "utf8");
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
+  return sessionFile(session, "backlog.json");
 }
 
 // ─── Backlog Operations ─────────────────────────────────────

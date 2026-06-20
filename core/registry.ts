@@ -10,10 +10,14 @@
  *   config.json  — session config (default model, etc.)
  */
 
-import { readFile, writeFile, rename, mkdir, readdir } from "node:fs/promises";
-import { join, dirname } from "node:path";
-import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
+
+import {
+  sessionFile,
+  readJson,
+  atomicWriteJson,
+  listSessions,
+} from "./storage.ts";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -53,36 +57,16 @@ export type AgentAddress = string;
 
 // ─── Paths ───────────────────────────────────────────────────
 
-const AMUX_DIR = join(homedir(), ".amux", "sessions");
-
 function registryPath(session: string): string {
-  return join(AMUX_DIR, session, "agents.json");
+  return sessionFile(session, "agents.json");
 }
 
 function rolesPath(session: string): string {
-  return join(AMUX_DIR, session, "roles.json");
+  return sessionFile(session, "roles.json");
 }
 
 function configPath(session: string): string {
-  return join(AMUX_DIR, session, "config.json");
-}
-
-// ─── Atomic I/O ──────────────────────────────────────────────
-
-async function atomicWriteJson(path: string, data: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const tmp = path + "." + randomBytes(4).toString("hex") + ".tmp";
-  await writeFile(tmp, JSON.stringify(data, null, 2), "utf8");
-  await rename(tmp, path);
-}
-
-async function readJson<T>(path: string, fallback: T): Promise<T> {
-  try {
-    const raw = await readFile(path, "utf8");
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
+  return sessionFile(session, "config.json");
 }
 
 // ─── Agent Registry ──────────────────────────────────────────
@@ -193,18 +177,13 @@ export async function getOfflineAgents(session: string): Promise<AgentInfo[]> {
 /** Get all agents across all sessions. */
 export async function readAllRegistries(): Promise<AgentInfo[]> {
   const allAgents: AgentInfo[] = [];
-  try {
-    const sessionDirs = await readdir(AMUX_DIR, { withFileTypes: true });
-    for (const entry of sessionDirs) {
-      if (!entry.isDirectory()) continue;
-      const registry = await readRegistry(entry.name);
-      for (const agent of Object.values(registry)) {
-        agent.session = agent.session || entry.name;
-        allAgents.push(agent);
-      }
+  const sessions = await listSessions();
+  for (const session of sessions) {
+    const registry = await readRegistry(session);
+    for (const agent of Object.values(registry)) {
+      agent.session = agent.session || session;
+      allAgents.push(agent);
     }
-  } catch {
-    // ~/.amux/sessions/ may not exist yet
   }
   return allAgents;
 }

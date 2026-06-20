@@ -9,9 +9,9 @@
 
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { rmSync, existsSync } from "node:fs";
+import { rmSync, existsSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 
 import {
   readRegistry,
@@ -66,16 +66,23 @@ import {
   getRecentEntries,
 } from "../core/journal.ts";
 
-// -- Helpers --
+// -- Test isolation --
 
-const SESSIONS_DIR = join(homedir(), ".amux", "sessions");
+// Redirect all session data to a temp directory — never touches ~/.amux
+const TEST_ROOT = mkdtempSync(join(tmpdir(), "amux-test-"));
+process.env.AMUX_SESSIONS_DIR = TEST_ROOT;
+
+// Clean up entire temp directory after all tests
+after(() => {
+  rmSync(TEST_ROOT, { recursive: true, force: true });
+});
 
 function testSession(name: string): string {
   return `_test_${name}_${process.pid}`;
 }
 
 function cleanupSession(session: string): void {
-  const dir = join(SESSIONS_DIR, session);
+  const dir = join(TEST_ROOT, session);
   if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
 }
 

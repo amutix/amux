@@ -20,13 +20,16 @@ import {
   readdirSync,
   unlinkSync,
   renameSync,
-  appendFileSync,
   mkdirSync,
 } from "node:fs";
 import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
+
+import {
+  sessionFile,
+  appendJsonlSync,
+} from "./storage.ts";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -42,14 +45,12 @@ export interface InboxMessage {
 
 // ─── Paths ───────────────────────────────────────────────────
 
-const AMUX_DIR = join(homedir(), ".amux", "sessions");
-
 function inboxDir(session: string, agentId: string): string {
-  return join(AMUX_DIR, session, "inbox", agentId);
+  return sessionFile(session, "inbox", agentId);
 }
 
 function historyPath(session: string): string {
-  return join(AMUX_DIR, session, "messages.log");
+  return sessionFile(session, "messages.log");
 }
 
 // ─── Inbox Operations ────────────────────────────────────────
@@ -146,9 +147,7 @@ export function confirmDelivered(session: string, agentId: string): void {
  * Called when a message is first picked up (before processing).
  */
 export function appendToHistory(session: string, message: InboxMessage): void {
-  const path = historyPath(session);
-  mkdirSync(join(AMUX_DIR, session), { recursive: true });
-  appendFileSync(path, JSON.stringify(message) + "\n", "utf8");
+  appendJsonlSync(historyPath(session), message);
 }
 
 // ─── Watcher ─────────────────────────────────────────────────

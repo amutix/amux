@@ -11,10 +11,13 @@
  *   reservations.json — active reservations (keyed by path prefix)
  */
 
-import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
-import { join, dirname, normalize } from "node:path";
-import { homedir } from "node:os";
-import { randomBytes } from "node:crypto";
+import { normalize } from "node:path";
+
+import {
+  sessionFile,
+  readJson,
+  atomicWriteJson,
+} from "./storage.ts";
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -39,28 +42,8 @@ export interface ConflictInfo {
 
 // ─── Paths ───────────────────────────────────────────────────
 
-const AMUX_DIR = join(homedir(), ".amux", "sessions");
-
 function reservationsPath(session: string): string {
-  return join(AMUX_DIR, session, "reservations.json");
-}
-
-// ─── Atomic I/O ──────────────────────────────────────────────
-
-async function atomicWriteJson(path: string, data: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const tmp = path + "." + randomBytes(4).toString("hex") + ".tmp";
-  await writeFile(tmp, JSON.stringify(data, null, 2), "utf8");
-  await rename(tmp, path);
-}
-
-async function readJson<T>(path: string, fallback: T): Promise<T> {
-  try {
-    const raw = await readFile(path, "utf8");
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
+  return sessionFile(session, "reservations.json");
 }
 
 // ─── Path Helpers ────────────────────────────────────────────

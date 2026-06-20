@@ -6,6 +6,7 @@
  */
 
 // Re-export core modules
+export * from "./storage";
 export * from "./registry";
 export * from "./messaging";
 export * from "./backlog";
