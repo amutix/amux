@@ -27,7 +27,11 @@ cli/                           Command-line interface (uses core)
 ### Pi Extension
 
 ```bash
+# Stable (npm)
 pi install npm:@rezabaram/amux
+
+# Latest (git)
+pi install git:github.com/rezabaram/amux
 ```
 
 ### Standalone (core module)
