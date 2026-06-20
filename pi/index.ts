@@ -898,7 +898,7 @@ export default function (pi: ExtensionAPI) {
       "Use 'comment' for task-scoped discussion  -- prefer over amux_send for task-related topics.",
     ],
     parameters: Type.Object({
-      action: StringEnum(["add", "list", "show", "comment", "assign", "pick", "done", "drop", "block"] as const),
+      action: StringEnum(["add", "list", "show", "comment", "assign", "pick", "done", "drop", "block", "summary"] as const),
       // add
       title: Type.Optional(Type.String({ description: "Task title (required for add)" })),
       description: Type.Optional(Type.String({ description: "Task description or acceptance criteria" })),
@@ -1081,6 +1081,15 @@ export default function (pi: ExtensionAPI) {
           return {
             content: [{ type: "text", text: `Comment added to ${params.id}.` }],
             details: { taskId: params.id },
+          };
+        }
+
+        // -- summary ------------------------------------------
+        case "summary": {
+          const summary = await buildProgressSummary(mySession);
+          return {
+            content: [{ type: "text", text: summary }],
+            details: {},
           };
         }
 
@@ -1545,13 +1554,15 @@ export default function (pi: ExtensionAPI) {
         case "status":
           if (parts[1] === "set") return handleStatusSet(parts.slice(2), ctx);
           return handleStatus(ctx);
+        case "progress":
+          return handleProgress(ctx);
         case "new":
           return handleNew(parts.slice(1), ctx);
         case "context":
           return handleContext(parts.slice(1), ctx);
         default:
           ctx.ui.notify(
-            `Unknown: /amux ${sub}\n\nAvailable:\n  /amux              Status\n  /amux join          Join a project as an agent\n  /amux leave         Leave current project\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux context       Show/edit project context (CONTEXT.md)\n  /amux status set    Set your availability (idle/working/focus/away)\n  /amux workspace     Git workspace setup and sync`,
+            `Unknown: /amux ${sub}\n\nAvailable:\n  /amux              Status\n  /amux join          Join a project as an agent\n  /amux leave         Leave current project\n  /amux progress      Project progress overview\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux context       Show/edit project context (CONTEXT.md)\n  /amux status set    Set your availability (idle/working/focus/away)\n  /amux workspace     Git workspace setup and sync`,
             "warning"
           );
       }
@@ -1594,9 +1605,104 @@ export default function (pi: ExtensionAPI) {
     const availStr = me?.availability ? ` | ${me.availability}${me.statusMessage ? `: ${me.statusMessage}` : ""}` : "";
 
     ctx.ui.notify(
-      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux context       Show/edit project context\n  /amux status set    Set your availability\n  /amux workspace     Git workspace setup and sync`,
+      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux progress      Project progress overview\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux context       Show/edit project context\n  /amux status set    Set your availability\n  /amux workspace     Git workspace setup and sync`,
       "info"
     );
+  }
+
+  // -- progress handler --
+
+  async function handleProgress(ctx: ExtensionContext): Promise<void> {
+    if (!mySession) {
+      ctx.ui.notify("Not in a project. Use /amux join first.", "warning");
+      return;
+    }
+    const summary = await buildProgressSummary(mySession);
+    ctx.ui.notify(summary, "info");
+  }
+
+  async function buildProgressSummary(session: string): Promise<string> {
+    const tasks = await readBacklog(session);
+    if (tasks.length === 0) return `Project: ${session}\n\nNo backlog items yet.`;
+
+    // Status counts
+    const counts: Record<string, number> = {};
+    for (const t of tasks) {
+      counts[t.status] = (counts[t.status] || 0) + 1;
+    }
+    const total = tasks.length;
+    const statusLine = ["todo", "assigned", "in-progress", "blocked", "done"]
+      .filter((s) => counts[s])
+      .map((s) => `${counts[s]} ${s}`)
+      .join(" \u00b7 ");
+
+    let out = `Project: ${session}\n`;
+    out += `${"\u2500".repeat(40)}\n`;
+    out += `${statusLine}  (${total} total)\n`;
+
+    // In-progress
+    const active = tasks.filter((t) => t.status === "in-progress");
+    if (active.length > 0) {
+      out += `\n\u25b6 Active:\n`;
+      for (const t of active) {
+        const assignee = t.assignee ? ` \u2014 ${t.assignee}` : "";
+        const type = t.itemType && t.itemType !== "task" ? ` (${t.itemType})` : "";
+        out += `  ${t.id}${type}  ${t.title}${assignee}\n`;
+      }
+    }
+
+    // Blocked
+    const blocked = tasks.filter((t) => t.status === "blocked");
+    if (blocked.length > 0) {
+      out += `\n\u26a0 Blocked:\n`;
+      for (const t of blocked) {
+        const reason = t.blockedReason ? `: ${t.blockedReason}` : "";
+        out += `  ${t.id}  ${t.title}${reason}\n`;
+      }
+    }
+
+    // Next actionable (todo + deps met, max 5)
+    const next = tasks
+      .filter((t) => t.status === "todo" && unmetDependencies(t, tasks).length === 0)
+      .slice(0, 5);
+    if (next.length > 0) {
+      out += `\n\u25c6 Next:\n`;
+      for (const t of next) {
+        const type = t.itemType && t.itemType !== "task" ? ` (${t.itemType})` : "";
+        out += `  ${t.id}${type}  ${t.title}\n`;
+      }
+    }
+
+    // Recent completions (last 3)
+    const done = tasks
+      .filter((t) => t.status === "done" && t.completedAt)
+      .sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || ""))
+      .slice(0, 3);
+    if (done.length > 0) {
+      out += `\n\u2713 Recently Done:\n`;
+      for (const t of done) {
+        const ago = t.completedAt
+          ? formatDuration(Date.now() - new Date(t.completedAt).getTime()) + " ago"
+          : "";
+        out += `  ${t.id}  ${t.title}${ago ? ` (${ago})` : ""}\n`;
+      }
+    }
+
+    // Initiative/parent grouping
+    const parents = tasks.filter((t) =>
+      tasks.some((c) => c.parentId === t.id)
+    );
+    if (parents.length > 0) {
+      out += `\nInitiatives:\n`;
+      for (const p of parents) {
+        const children = tasks.filter((c) => c.parentId === p.id);
+        const childDone = children.filter((c) => c.status === "done").length;
+        const type = p.itemType && p.itemType !== "task" ? ` (${p.itemType})` : "";
+        out += `  ${p.id}${type}  ${p.title} [${childDone}/${children.length} done]\n`;
+      }
+    }
+
+    return out.trimEnd();
   }
 
   // -- join handler --

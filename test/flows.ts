@@ -1485,3 +1485,42 @@ describe("BacklogItem hierarchy fields", () => {
     assert.equal(standalone.order, undefined);
   });
 });
+
+describe("Progress summary data patterns", () => {
+  const session = testSession("progress");
+  after(() => cleanupSession(session));
+
+  it("supports all status categories for progress view", async () => {
+    const now = new Date().toISOString();
+    const base = { createdBy: "Test", createdAt: now, updatedAt: now };
+
+    await addTask(session, { title: "Done task", status: "todo", ...base });
+    await updateTask(session, "TASK-01", { status: "done", completedAt: now, summary: "Shipped" });
+    await addTask(session, { title: "Active task", status: "todo", ...base });
+    await updateTask(session, "TASK-02", { status: "in-progress", assignee: "Alice" });
+    await addTask(session, { title: "Blocked task", status: "todo", ...base });
+    await updateTask(session, "TASK-03", { status: "blocked", blockedReason: "Waiting on API" });
+    await addTask(session, { title: "Todo task", status: "todo", ...base });
+    await addTask(session, { title: "Dep-blocked", status: "todo", dependsOn: ["TASK-02"], ...base });
+
+    const tasks = await readBacklog(session);
+    const done = tasks.filter((t) => t.status === "done");
+    const active = tasks.filter((t) => t.status === "in-progress");
+    const blocked = tasks.filter((t) => t.status === "blocked");
+    const next = tasks.filter((t) => t.status === "todo" && unmetDependencies(t, tasks).length === 0);
+
+    assert.equal(done.length, 1);
+    assert.equal(active.length, 1);
+    assert.equal(active[0]!.assignee, "Alice");
+    assert.equal(blocked.length, 1);
+    assert.equal(blocked[0]!.blockedReason, "Waiting on API");
+    assert.equal(next.length, 1, "Dep-blocked item should be excluded from next");
+    assert.equal(next[0]!.title, "Todo task");
+  });
+
+  // Manual test for /amux progress:
+  //   1. /amux join a project with mixed backlog
+  //   2. /amux progress → see status counts, active, blocked, next, done
+  //   3. amux_task({ action: "summary" }) → same compact view
+  //   4. Verify initiatives section appears when items have parentId
+});

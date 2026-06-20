@@ -71,6 +71,7 @@ All commands are subcommands of `/amux`:
 | `/amux join` | Join a project as an agent |
 | `/amux leave` | Leave project, return to solo mode |
 | `/amux manage` | Manage projects, agents, and roles (browse UI) |
+| `/amux progress` | Project progress overview |
 | `/amux new <type>` | Create project, agent, or role directly |
 | `/amux context` | Show/edit project context (CONTEXT.md) |
 | `/amux status set` | Set your availability (idle/working/focus/away) |
