@@ -86,6 +86,11 @@ import {
   getRecentEntries,
   formatEntry as formatJournalEntry,
 } from "../core/journal";
+import {
+  appendTaskComment,
+  readTaskComments,
+  formatTaskComment,
+} from "../core/task-comments";
 
 
 
@@ -842,11 +847,12 @@ export default function (pi: ExtensionAPI) {
     label: "Task Backlog",
     description:
       "Manage the task backlog. Actions: add (create task), list (show tasks), " +
+      "show (task details + comments), comment (add task-scoped comment), " +
       "assign (delegate to same-session agent, comma-separated IDs for batch), pick (claim/accept task), done (complete), " +
       "drop (release back to queue), block (mark blocked). " +
       "Tasks can declare dependencies via dependsOn. " +
       "Picking a task auto-reserves its files. Done/drop auto-releases them.",
-    promptSnippet: "Manage task backlog  -- add, list, assign, pick, done, drop, block",
+    promptSnippet: "Manage task backlog  -- add, list, show, comment, assign, pick, done, drop, block",
     promptGuidelines: [
       "Use action 'pick' to claim the next available task or accept an assigned task.",
       "Picking a task auto-reserves its files. Done/drop auto-releases them.",
@@ -855,9 +861,11 @@ export default function (pi: ExtensionAPI) {
       "Use dependsOn when adding a task that should wait for other tasks to complete.",
       "Pass comma-separated IDs to assign to batch-assign multiple tasks with one notification.",
       "Only the assignee can done/drop/block an assigned task.",
+      "Use 'show' to view task details and comment history.",
+      "Use 'comment' for task-scoped discussion  -- prefer over amux_send for task-related topics.",
     ],
     parameters: Type.Object({
-      action: StringEnum(["add", "list", "assign", "pick", "done", "drop", "block"] as const),
+      action: StringEnum(["add", "list", "show", "comment", "assign", "pick", "done", "drop", "block"] as const),
       // add
       title: Type.Optional(Type.String({ description: "Task title (required for add)" })),
       description: Type.Optional(Type.String({ description: "Task description or acceptance criteria" })),
@@ -869,6 +877,7 @@ export default function (pi: ExtensionAPI) {
       to: Type.Optional(Type.String({ description: "Agent name to assign the task to" })),
       reason: Type.Optional(Type.String({ description: "Reason for blocking, or approach note for pick" })),
       summary: Type.Optional(Type.String({ description: "Completion summary (for done)" })),
+      content: Type.Optional(Type.String({ description: "Comment text (for comment action)" })),
       // list
       status: Type.Optional(Type.String({ description: "Filter by status: todo, assigned, in-progress, done, blocked" })),
     }),
@@ -960,6 +969,66 @@ export default function (pi: ExtensionAPI) {
           };
         }
 
+        // -- show ---------------------------------------------
+        case "show": {
+          if (!params.id) throw new Error("Task ID is required for show.");
+          const tasks = await readBacklog(mySession);
+          const task = tasks.find((t) => t.id === params.id);
+          if (!task) throw new Error(`Task ${params.id} not found.`);
+
+          let text = `${task.id}: ${task.title}  [${task.status}]`;
+          if (task.description) text += `\n\n${task.description}`;
+          text += `\n\nStatus: ${task.status}`;
+          if (task.assignee) text += `\nAssignee: ${task.assignee}${task.assigneeId === myId ? " (you)" : ""}`;
+          if (task.dependsOn?.length) {
+            const unmet = unmetDependencies(task, tasks);
+            text += `\nDepends on: ${task.dependsOn.join(", ")}${unmet.length > 0 ? ` (waiting: ${unmet.join(", ")})` : " \u2713"}`;
+          }
+          if (task.files?.length) text += `\nFiles: ${task.files.join(", ")}`;
+          if (task.blockedReason) text += `\nBlocked: ${task.blockedReason}`;
+          if (task.summary) text += `\nSummary: ${task.summary}`;
+          text += `\nCreated: ${task.createdAt} by ${task.createdBy}`;
+          if (task.completedAt) text += `\nCompleted: ${task.completedAt}`;
+
+          const comments = readTaskComments(mySession, task.id);
+          if (comments.length > 0) {
+            text += `\n\n\u2500\u2500 Comments (${comments.length}) \u2500\u2500`;
+            for (const c of comments) {
+              text += `\n${formatTaskComment(c)}`;
+            }
+          } else {
+            text += `\n\nNo comments yet. Use amux_task with action \"comment\" to add one.`;
+          }
+
+          return {
+            content: [{ type: "text", text }],
+            details: { task, comments },
+          };
+        }
+
+        // -- comment ------------------------------------------
+        case "comment": {
+          if (!myId || !myName) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!params.id) throw new Error("Task ID is required for comment.");
+          if (!params.content) throw new Error("Comment text is required (pass content parameter).");
+
+          const task = await getTask(mySession, params.id);
+          if (!task) throw new Error(`Task ${params.id} not found.`);
+
+          appendTaskComment(mySession, params.id, {
+            timestamp: new Date().toISOString(),
+            agent: myName,
+            agentId: myId,
+            type: "comment",
+            text: params.content,
+          });
+
+          return {
+            content: [{ type: "text", text: `Comment added to ${params.id}.` }],
+            details: { taskId: params.id },
+          };
+        }
+
         // -- assign -------------------------------------------
         case "assign": {
           if (!myId || !myName) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
@@ -1009,6 +1078,17 @@ export default function (pi: ExtensionAPI) {
             task.updatedAt = now;
           }
           await writeBacklog(mySession, tasks);
+
+          // Record assignment activity
+          for (const t of toAssign) {
+            appendTaskComment(mySession, t.id, {
+              timestamp: now,
+              agent: myName,
+              agentId: myId,
+              type: "activity",
+              text: `Assigned to ${target.name} by ${myName}`,
+            });
+          }
 
           // Send single batched notification
           const taskList = toAssign.map((t) => {
@@ -1096,6 +1176,14 @@ export default function (pi: ExtensionAPI) {
           task.updatedAt = new Date().toISOString();
           await writeBacklog(mySession, tasks);
 
+          appendTaskComment(mySession, task.id, {
+            timestamp: task.updatedAt,
+            agent: myName,
+            agentId: myId,
+            type: "activity",
+            text: `Picked by ${myName}`,
+          });
+
           // Auto-reserve files (partial success  -- Option B)
           const reserved: string[] = [];
           const conflicts: Array<{ path: string; detail: string }> = [];
@@ -1157,6 +1245,14 @@ export default function (pi: ExtensionAPI) {
           if (params.summary) task.summary = params.summary;
           await writeBacklog(mySession, tasks);
 
+          appendTaskComment(mySession, task.id, {
+            timestamp: task.updatedAt,
+            agent: myName || "agent",
+            agentId: myId,
+            type: "activity",
+            text: `Completed${params.summary ? `: ${params.summary}` : ""}`,
+          });
+
           // Auto-release file reservations
           let released: string[] = [];
           if (task.files?.length) {
@@ -1197,6 +1293,14 @@ export default function (pi: ExtensionAPI) {
           task.updatedAt = new Date().toISOString();
           await writeBacklog(mySession, tasks);
 
+          appendTaskComment(mySession, task.id, {
+            timestamp: task.updatedAt,
+            agent: myName || "agent",
+            agentId: myId,
+            type: "activity",
+            text: `Dropped \u2014 back in queue`,
+          });
+
           // Auto-release file reservations
           let released: string[] = [];
           if (task.files?.length) {
@@ -1233,6 +1337,14 @@ export default function (pi: ExtensionAPI) {
           task.blockedReason = params.reason;
           task.updatedAt = new Date().toISOString();
           await writeBacklog(mySession, tasks);
+
+          appendTaskComment(mySession, task.id, {
+            timestamp: task.updatedAt,
+            agent: myName || "agent",
+            agentId: myId,
+            type: "activity",
+            text: `Blocked: ${params.reason}`,
+          });
 
           return {
             content: [{ type: "text", text: `⚠️ ${task.id} blocked: ${params.reason}` }],

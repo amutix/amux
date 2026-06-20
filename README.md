@@ -117,7 +117,7 @@ Project context is stored in `artifacts/project/CONTEXT.md` and auto-injected in
 | `amux_broadcast` | -- | Broadcast to all agents |
 | `amux_artifacts` | -- | List shared documents |
 | `amux_reserve` | claim, release, list | File/directory reservations |
-| `amux_task` | add, list, assign, pick, done, drop, block | Task backlog with dependencies and batch assign |
+| `amux_task` | add, list, show, comment, assign, pick, done, drop, block | Task backlog with comments, dependencies, batch assign |
 | `amux_journal` | add, list | Record decisions and learnings |
 
 ## Built-in Roles
@@ -165,7 +165,7 @@ Sync runs `git fetch origin` followed by `git rebase origin/<mainBranch>`, where
 - **Heartbeat presence** -- crashed agents auto-expire after 90s, stale reservations cleared automatically
 - **Crash-safe messaging** -- messages survive crashes, delivered on reconnect
 - **File reservations** -- claim files before editing, prevent conflicts
-- **Task backlog** -- dependencies (dependsOn), batch assign with notification batching, assignee ownership
+- **Task backlog** -- task-scoped comments/activity, dependencies (dependsOn), batch assign, assignee ownership
 - **Shared journal** -- decisions and learnings in every agent's context
 - **Git workspaces** -- isolated worktrees per agent
 - **Built-in roles** -- ready to use, customizable per project
@@ -188,6 +188,7 @@ Both core modules and the Pi adapter resolve the same root.
 ├── roles.json              Role definitions
 ├── config.json             Project config (main repo path)
 ├── backlog.json            Task backlog
+├── task-comments/          Per-task comment/activity history (JSONL)
 ├── reservations.json       File reservations
 ├── journal.jsonl           Decisions & learnings
 ├── messages.log            Message history

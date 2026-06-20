@@ -74,6 +74,12 @@ import {
   readEntries,
   getRecentEntries,
 } from "../core/journal.ts";
+import {
+  appendTaskComment,
+  readTaskComments,
+  formatTaskComment,
+  type TaskComment,
+} from "../core/task-comments.ts";
 
 // -- Test isolation --
 
@@ -1206,4 +1212,100 @@ describe("Project context (CONTEXT.md)", () => {
   //   3. /amux new role custom → prompts for description and instructions
   //   4. /amux new → shows usage help
   //   5. /amux new agent → prompts for name, then role selection
+});
+
+describe("Task-scoped comments", () => {
+  const session = testSession("task-comments");
+  after(() => cleanupSession(session));
+
+  it("returns empty array for task with no comments", () => {
+    const comments = readTaskComments(session, "TASK-99");
+    assert.deepStrictEqual(comments, []);
+  });
+
+  it("appends and reads a comment", () => {
+    appendTaskComment(session, "TASK-01", {
+      timestamp: "2026-06-20T10:00:00.000Z",
+      agent: "Alice",
+      agentId: "agent-a",
+      type: "comment",
+      text: "Looks good, one suggestion on error handling.",
+    });
+
+    const comments = readTaskComments(session, "TASK-01");
+    assert.equal(comments.length, 1);
+    assert.equal(comments[0]!.type, "comment");
+    assert.equal(comments[0]!.agent, "Alice");
+    assert.ok(comments[0]!.text.includes("error handling"));
+  });
+
+  it("appends activity entries alongside comments", () => {
+    appendTaskComment(session, "TASK-01", {
+      timestamp: "2026-06-20T10:01:00.000Z",
+      agent: "Bob",
+      agentId: "agent-b",
+      type: "activity",
+      text: "Picked by Bob",
+    });
+    appendTaskComment(session, "TASK-01", {
+      timestamp: "2026-06-20T10:02:00.000Z",
+      agent: "Bob",
+      agentId: "agent-b",
+      type: "comment",
+      text: "Starting implementation now.",
+    });
+
+    const comments = readTaskComments(session, "TASK-01");
+    assert.equal(comments.length, 3);
+    assert.equal(comments[0]!.type, "comment");
+    assert.equal(comments[1]!.type, "activity");
+    assert.equal(comments[2]!.type, "comment");
+  });
+
+  it("isolates comments per task ID", () => {
+    appendTaskComment(session, "TASK-02", {
+      timestamp: "2026-06-20T11:00:00.000Z",
+      agent: "Alice",
+      agentId: "agent-a",
+      type: "comment",
+      text: "Different task discussion.",
+    });
+
+    assert.equal(readTaskComments(session, "TASK-01").length, 3);
+    assert.equal(readTaskComments(session, "TASK-02").length, 1);
+  });
+
+  it("formats comments for display", () => {
+    const entry: TaskComment = {
+      timestamp: "2026-06-20T14:30:00.000Z",
+      agent: "Alice",
+      agentId: "agent-a",
+      type: "comment",
+      text: "Ship it!",
+    };
+    const formatted = formatTaskComment(entry);
+    assert.ok(formatted.includes("2026-06-20 14:30"));
+    assert.ok(formatted.includes("Alice"));
+    assert.ok(formatted.includes("comment"));
+    assert.ok(formatted.includes("Ship it!"));
+  });
+
+  it("does not affect backlog.json", async () => {
+    // Create a task, add comments, verify backlog is unaffected
+    const task = await addTask(session, {
+      title: "Test comment isolation", status: "todo", createdBy: "Test",
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    appendTaskComment(session, task.id, {
+      timestamp: new Date().toISOString(),
+      agent: "Test",
+      agentId: "test-id",
+      type: "comment",
+      text: "This should not appear in backlog.json",
+    });
+
+    const t = await getTask(session, task.id);
+    assert.equal(t!.title, "Test comment isolation");
+    assert.equal((t as any).comments, undefined);
+  });
 });

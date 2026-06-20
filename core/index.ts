@@ -12,6 +12,7 @@ export * from "./messaging";
 export * from "./backlog";
 export * from "./reservations";
 export * from "./journal";
+export * from "./task-comments";
 
 // RoleDefinition is already exported from registry.ts
 import type { RoleDefinition } from "./registry";
