@@ -61,20 +61,32 @@ export async function writeBacklog(session: string, tasks: Backlog): Promise<voi
   await atomicWriteJson(backlogPath(session), tasks);
 }
 
+/** ID prefix per item type. */
+export const ITEM_TYPE_PREFIX: Record<string, string> = {
+  task: "TASK",
+  initiative: "INIT",
+  milestone: "MS",
+  bug: "BUG",
+  chore: "CHORE",
+  spec: "SPEC",
+};
+
 /**
- * Generate the next task ID based on existing tasks.
- * Scans for the highest TASK-XX number and increments.
+ * Generate the next item ID based on existing items and item type.
+ * Each prefix has its own sequence: TASK-01, BUG-01, INIT-01, etc.
  */
-export function nextTaskId(tasks: Task[]): string {
+export function nextTaskId(tasks: Task[], itemType?: string): string {
+  const prefix = ITEM_TYPE_PREFIX[itemType || "task"] || "TASK";
+  const pattern = new RegExp(`^${prefix}-(\\d+)$`);
   let maxNum = 0;
   for (const task of tasks) {
-    const match = task.id.match(/^TASK-(\d+)$/);
+    const match = task.id.match(pattern);
     if (match) {
-      const num = parseInt(match[1], 10);
+      const num = parseInt(match[1]!, 10);
       if (num > maxNum) maxNum = num;
     }
   }
-  return `TASK-${String(maxNum + 1).padStart(2, "0")}`;
+  return `${prefix}-${String(maxNum + 1).padStart(2, "0")}`;
 }
 
 /**
@@ -89,7 +101,7 @@ export async function addTask(
 ): Promise<Task> {
   let task!: Task;
   await withJsonFile<Backlog>(backlogPath(session), [], (tasks) => {
-    const id = nextTaskId(tasks);
+    const id = nextTaskId(tasks, taskData.itemType);
     task = { id, ...taskData };
     if (urgent) {
       tasks.unshift(task);

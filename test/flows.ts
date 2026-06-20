@@ -57,6 +57,7 @@ import {
   getTask,
   updateTask,
   unmetDependencies,
+  ITEM_TYPE_PREFIX,
 } from "../core/backlog.ts";
 
 import {
@@ -1567,5 +1568,53 @@ describe("Progress summary data patterns", () => {
     assert.equal(topLevel[0]!.itemType, "initiative");
 
     cleanupSession(session);
+  });
+});
+
+describe("Type-prefixed item IDs", () => {
+  const session = testSession("id-prefix");
+  after(() => cleanupSession(session));
+
+  it("default items get TASK-XX IDs", async () => {
+    const t = await addTask(session, {
+      title: "Regular task", status: "todo",
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    assert.match(t.id, /^TASK-\d+$/);
+  });
+
+  it("bug items get BUG-XX IDs", async () => {
+    const t = await addTask(session, {
+      title: "Fix crash", status: "todo", itemType: "bug",
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    assert.match(t.id, /^BUG-\d+$/);
+  });
+
+  it("initiative items get INIT-XX IDs", async () => {
+    const t = await addTask(session, {
+      title: "Auth epic", status: "todo", itemType: "initiative",
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    assert.match(t.id, /^INIT-\d+$/);
+  });
+
+  it("each prefix has independent numbering", async () => {
+    const backlog = await readBacklog(session);
+    const task = backlog.find((t) => t.id.startsWith("TASK-"));
+    const bug = backlog.find((t) => t.id.startsWith("BUG-"));
+    const init = backlog.find((t) => t.id.startsWith("INIT-"));
+    assert.equal(task!.id, "TASK-01");
+    assert.equal(bug!.id, "BUG-01");
+    assert.equal(init!.id, "INIT-01");
+  });
+
+  it("ITEM_TYPE_PREFIX maps all item types", () => {
+    assert.equal(ITEM_TYPE_PREFIX["task"], "TASK");
+    assert.equal(ITEM_TYPE_PREFIX["bug"], "BUG");
+    assert.equal(ITEM_TYPE_PREFIX["initiative"], "INIT");
+    assert.equal(ITEM_TYPE_PREFIX["milestone"], "MS");
+    assert.equal(ITEM_TYPE_PREFIX["chore"], "CHORE");
+    assert.equal(ITEM_TYPE_PREFIX["spec"], "SPEC");
   });
 });
