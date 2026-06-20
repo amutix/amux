@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * amux CLI -- Agent Multiplexer command-line interface
  *

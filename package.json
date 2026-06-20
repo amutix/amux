@@ -13,8 +13,23 @@
     "type": "git",
     "url": "https://github.com/rezabaram/amux.git"
   },
-  "author": "",
+  "homepage": "https://github.com/rezabaram/amux",
+  "bugs": {
+    "url": "https://github.com/rezabaram/amux/issues"
+  },
+  "author": "rezabaram",
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "core/",
+    "pi/",
+    "cli/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "bin": {
     "amux": "./cli/index.ts"
   },
