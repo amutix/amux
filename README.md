@@ -122,6 +122,16 @@ Lifecycle events (assign, pick, done, drop, block) are automatically recorded as
 
 When shaping larger work, create the high-level item first (`initiative` or `milestone`), add child executable items, review the structure with `/amux progress`, then assign the leaf work. Assign `task`/`bug`/`chore`/`spec` items rather than container items unless you intentionally want broad ownership.
 
+**Documentation types:**
+
+| Type | Use for | Tool |
+|------|---------|------|
+| Task description | Brief inline context and acceptance criteria | `amux_task add` |
+| Linked spec | Detailed plans, checklists, design notes | `amux_task plan/edit-plan` |
+| Journal | Decisions, learnings, progress shared across agents | `amux_journal add` |
+
+**Recommended workflow:** Create a high-level initiative with child tasks, assign all executable leaves to the intended agent(s) upfront, and let `dependsOn` enforce ordering. The assignee picks one task at a time after completing the current one. Auto-pick (`amux_task pick` without an ID) prefers assigned-to-self items with met dependencies before open todo items.
+
 ### Backlog Model
 
 Backlog items (`BacklogItem`) support optional structure fields:

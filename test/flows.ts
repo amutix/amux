@@ -1706,3 +1706,42 @@ describe("Task spec helpers", () => {
   //   4. amux_task({ action: "show", id: "TASK-01" })
   //      → shows parent context + spec preview
 });
+
+describe("Auto-pick prefers assigned-to-self", () => {
+  const session = testSession("auto-pick");
+  const myId = "agent-me";
+  after(() => cleanupSession(session));
+
+  it("prefers assigned-to-self over open todo", async () => {
+    const now = new Date().toISOString();
+    const base = { createdBy: "Test", createdAt: now, updatedAt: now };
+
+    // Create open todo and assigned-to-self tasks
+    await addTask(session, { title: "Open todo", status: "todo", ...base });
+    const assigned = await addTask(session, { title: "Assigned to me", status: "todo", ...base });
+    await updateTask(session, assigned.id, { status: "assigned", assignee: "Me", assigneeId: myId });
+
+    const tasks = await readBacklog(session);
+
+    // Same logic as Pi adapter auto-pick
+    const pick = tasks.find((t) => t.status === "assigned" && t.assigneeId === myId && unmetDependencies(t, tasks).length === 0)
+      || tasks.find((t) => t.status === "todo" && unmetDependencies(t, tasks).length === 0);
+
+    assert.ok(pick);
+    assert.equal(pick!.title, "Assigned to me");
+  });
+
+  it("falls back to open todo when no assigned-to-self", async () => {
+    const tasks = await readBacklog(session);
+    // Mark the assigned task as done
+    const assigned = tasks.find((t) => t.status === "assigned")!;
+    await updateTask(session, assigned.id, { status: "done", completedAt: new Date().toISOString() });
+
+    const updated = await readBacklog(session);
+    const pick = updated.find((t) => t.status === "assigned" && t.assigneeId === myId && unmetDependencies(t, updated).length === 0)
+      || updated.find((t) => t.status === "todo" && unmetDependencies(t, updated).length === 0);
+
+    assert.ok(pick);
+    assert.equal(pick!.title, "Open todo");
+  });
+});

@@ -385,7 +385,15 @@ export default function (pi: ExtensionAPI) {
       if (inProgress.length > 0) {
         const active = inProgress[0]!;
         extra += `\n\n## Active Task\n${active.id}: ${active.title}`;
+        if (active.parentId) {
+          const parent = backlog.find((t) => t.id === active.parentId);
+          if (parent) extra += `\nParent: ${parent.id}: ${parent.title}`;
+        }
         if (active.files?.length) extra += `\nFiles: ${active.files.join(", ")}`;
+        if (active.specPath) {
+          const spec = readSpecPreview(mySession, active.specPath, 2000);
+          if (spec) extra += `\n\n${spec}`;
+        }
         const comments = readTaskComments(mySession, active.id);
         if (comments.length > 0) {
           const recent = comments.slice(-3);
@@ -908,7 +916,9 @@ export default function (pi: ExtensionAPI) {
       "Picking a task auto-reserves its files. Done/drop auto-releases them.",
       "Use action 'done' with a summary when completing a task.",
       "Use action 'assign' to delegate executable leaf work items to same-session agents  -- the assignee accepts by picking.",
-      "Create and review high-level initiatives/milestones and their children before assigning the child work.",
+      "Create and review high-level initiatives/milestones and their children before assigning executable child work.",
+      "It is OK to assign all defined leaf work up front; use dependsOn to enforce order, and assignees should pick one item at a time after completing the current item.",
+      "When working on a child item, inspect its parent context with amux_task show before picking or implementing.",
       "Use dependsOn when adding an item that should wait for other items to complete.",
       "Pass comma-separated IDs to assign multiple items in one state update.",
       "Only the assignee can done/drop/block an assigned item.",
@@ -1030,8 +1040,9 @@ export default function (pi: ExtensionAPI) {
             const doneTime = t.status === "done" && t.completedAt
               ? ` (${formatDuration(Date.now() - new Date(t.completedAt).getTime())} ago)` : "";
             const typeLabel = t.itemType && t.itemType !== "task" ? `(${t.itemType}) ` : "";
+            const specMarker = t.specPath ? " [spec]" : "";
 
-            return `  #${String(pos).padStart(2)}  ${t.id}  ${typeLabel}[${t.status}]  ${t.title}${assigneeStr}${meMarker}${doneTime}${filesStr}${depsStr}${blockedStr}${summaryStr}`;
+            return `  #${String(pos).padStart(2)}  ${t.id}  ${typeLabel}[${t.status}]  ${t.title}${specMarker}${assigneeStr}${meMarker}${doneTime}${filesStr}${depsStr}${blockedStr}${summaryStr}`;
           });
 
           return {
@@ -1308,8 +1319,9 @@ export default function (pi: ExtensionAPI) {
               );
             }
           } else {
-            // Auto-pick: first "todo" task with met dependencies
-            task = tasks.find((t) => t.status === "todo" && unmetDependencies(t, tasks).length === 0);
+            // Auto-pick: prefer assigned-to-self with met deps, then open todo
+            task = tasks.find((t) => t.status === "assigned" && t.assigneeId === myId && unmetDependencies(t, tasks).length === 0)
+              || tasks.find((t) => t.status === "todo" && unmetDependencies(t, tasks).length === 0);
             if (!task) {
               throw new Error(
                 "No tasks available to pick. All tasks are assigned, in progress, blocked, done, or waiting on dependencies."
