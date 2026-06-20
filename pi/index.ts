@@ -17,7 +17,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { FSWatcher } from "node:fs";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   getSessionsDir,
   sessionDir,
@@ -75,12 +75,17 @@ import {
 } from "../core/reservations";
 import {
   type Task,
+  type BacklogItem,
   readBacklog,
   writeBacklog,
   addTask,
   getTask,
   nextTaskId,
   unmetDependencies,
+  specRelativePath,
+  specFullPath,
+  defaultSpecTemplate,
+  readSpecPreview,
 } from "../core/backlog";
 import {
   appendEntry as addJournalEntry,
@@ -891,12 +896,13 @@ export default function (pi: ExtensionAPI) {
     label: "Task Backlog",
     description:
       "Manage the task backlog. Actions: add (create task), list (show tasks), " +
-      "show (task details + comments), comment (add task-scoped comment), " +
+      "show (task details + comments/spec preview), comment (add task-scoped comment), " +
+      "plan/edit-plan (manage task-linked specs), " +
       "assign (delegate to same-session agent, comma-separated IDs for batch), pick (claim/accept task), done (complete), " +
       "drop (release back to queue), block (mark blocked). " +
       "Tasks can declare dependencies via dependsOn. " +
       "Picking a task auto-reserves its files. Done/drop auto-releases them.",
-    promptSnippet: "Manage task backlog  -- add, list, show, comment, assign, pick, done, drop, block",
+    promptSnippet: "Manage task backlog  -- add, list, show, comment, plan, edit-plan, assign, pick, done, drop, block",
     promptGuidelines: [
       "Use action 'pick' to claim the next available task or accept an assigned task.",
       "Picking a task auto-reserves its files. Done/drop auto-releases them.",
@@ -906,11 +912,12 @@ export default function (pi: ExtensionAPI) {
       "Use dependsOn when adding an item that should wait for other items to complete.",
       "Pass comma-separated IDs to assign multiple items in one state update.",
       "Only the assignee can done/drop/block an assigned item.",
-      "Use 'show' to view item details, parent context, and comment history.",
+      "Use 'show' to view item details, parent context, linked spec preview, and comment history.",
+      "Use 'plan' and 'edit-plan' for first-class task-linked specs/checklists instead of ad-hoc project artifacts.",
       "Use 'comment' for task-scoped discussion  -- prefer over amux_send for task-related topics.",
     ],
     parameters: Type.Object({
-      action: StringEnum(["add", "list", "show", "comment", "assign", "pick", "done", "drop", "block", "summary"] as const),
+      action: StringEnum(["add", "list", "show", "comment", "plan", "edit-plan", "assign", "pick", "done", "drop", "block", "summary"] as const),
       // add
       title: Type.Optional(Type.String({ description: "Task title (required for add)" })),
       description: Type.Optional(Type.String({ description: "Task description or acceptance criteria" })),
@@ -929,7 +936,7 @@ export default function (pi: ExtensionAPI) {
       to: Type.Optional(Type.String({ description: "Agent name to assign the task to" })),
       reason: Type.Optional(Type.String({ description: "Reason for blocking, or approach note for pick" })),
       summary: Type.Optional(Type.String({ description: "Completion summary (for done)" })),
-      content: Type.Optional(Type.String({ description: "Comment text (for comment action)" })),
+      content: Type.Optional(Type.String({ description: "Comment text (for comment), or markdown spec content (for plan)" })),
       // list
       status: Type.Optional(Type.String({ description: "Filter by status: todo, assigned, in-progress, done, blocked" })),
     }),
@@ -1044,7 +1051,10 @@ export default function (pi: ExtensionAPI) {
           if (task.description) text += `\n\n${task.description}`;
           text += `\n\nStatus: ${task.status}`;
           if (task.itemType && task.itemType !== "task") text += `\nType: ${task.itemType}`;
-          if (task.parentId) text += `\nParent: ${task.parentId}`;
+          if (task.parentId) {
+            const parent = tasks.find((t) => t.id === task.parentId);
+            text += `\nParent: ${task.parentId}${parent ? `: ${parent.title}` : ""}`;
+          }
           if (task.order != null) text += `\nOrder: ${task.order}`;
           if (task.assignee) text += `\nAssignee: ${task.assignee}${task.assigneeId === myId ? " (you)" : ""}`;
           if (task.dependsOn?.length) {
@@ -1056,6 +1066,13 @@ export default function (pi: ExtensionAPI) {
           if (task.summary) text += `\nSummary: ${task.summary}`;
           text += `\nCreated: ${task.createdAt} by ${task.createdBy}`;
           if (task.completedAt) text += `\nCompleted: ${task.completedAt}`;
+
+          // Spec preview
+          if (task.specPath) {
+            text += `\nSpec: ${task.specPath}`;
+            const preview = readSpecPreview(mySession, task.specPath, 1024);
+            if (preview) text += `\n\n${preview}`;
+          }
 
           const comments = readTaskComments(mySession, task.id);
           if (comments.length > 0) {
@@ -1093,6 +1110,73 @@ export default function (pi: ExtensionAPI) {
           return {
             content: [{ type: "text", text: `Comment added to ${params.id}.` }],
             details: { taskId: params.id },
+          };
+        }
+
+        // -- plan ---------------------------------------------
+        case "plan": {
+          if (!myId || !myName) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!params.id) throw new Error("Task ID is required for plan.");
+
+          const task = await getTask(mySession, params.id);
+          if (!task) throw new Error(`Task ${params.id} not found.`);
+
+          const hadSpecPath = Boolean(task.specPath);
+          const relPath = task.specPath || specRelativePath(params.id);
+          const fullPath = specFullPath(mySession, relPath);
+          const existed = existsSync(fullPath);
+
+          mkdirSync(dirname(fullPath), { recursive: true });
+
+          if (params.content !== undefined) {
+            writeFileSync(fullPath, params.content, "utf8");
+          } else if (!existed) {
+            writeFileSync(fullPath, defaultSpecTemplate(task), "utf8");
+          }
+
+          // Link specPath if not already set
+          if (!task.specPath) {
+            await updateTask(mySession, params.id, { specPath: relPath });
+          }
+
+          const preview = readSpecPreview(mySession, relPath, 500);
+          const verb = params.content !== undefined || existed ? "updated" : "created";
+          const linkNote = hadSpecPath ? "" : "\nLinked specPath on backlog item.";
+          return {
+            content: [{
+              type: "text",
+              text: `Spec ${verb}: ${fullPath}${linkNote}\n\n${preview || "(empty)"}`,
+            }],
+            details: { taskId: params.id, specPath: relPath, fullPath },
+          };
+        }
+
+        // -- edit-plan ----------------------------------------
+        case "edit-plan": {
+          if (!myId || !myName) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!params.id) throw new Error("Task ID is required for edit-plan.");
+
+          const task = await getTask(mySession, params.id);
+          if (!task) throw new Error(`Task ${params.id} not found.`);
+
+          const relPath = task.specPath || specRelativePath(params.id);
+          const fullPath = specFullPath(mySession, relPath);
+
+          // Create with default template if missing
+          if (!existsSync(fullPath)) {
+            mkdirSync(dirname(fullPath), { recursive: true });
+            writeFileSync(fullPath, defaultSpecTemplate(task), "utf8");
+            if (!task.specPath) {
+              await updateTask(mySession, params.id, { specPath: relPath });
+            }
+          }
+
+          return {
+            content: [{
+              type: "text",
+              text: `Spec path: ${fullPath}\n\nUse read/edit tools to modify the spec.`,
+            }],
+            details: { taskId: params.id, specPath: relPath, fullPath },
           };
         }
 

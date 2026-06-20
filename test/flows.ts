@@ -1695,4 +1695,14 @@ describe("Task spec helpers", () => {
     const read = await getTask(session, item.id);
     assert.equal(read!.specPath, "tasks/TASK-42.md");
   });
+
+  // Manual test for plan/edit-plan actions:
+  //   1. amux_task({ action: "plan", id: "TASK-01" })
+  //      → creates tasks/TASK-01.md with default template, links specPath
+  //   2. amux_task({ action: "plan", id: "TASK-01", content: "# Custom" })
+  //      → updates spec content
+  //   3. amux_task({ action: "edit-plan", id: "TASK-01" })
+  //      → returns path for read/edit tools; creates if missing
+  //   4. amux_task({ action: "show", id: "TASK-01" })
+  //      → shows parent context + spec preview
 });
