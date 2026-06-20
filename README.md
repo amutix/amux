@@ -8,9 +8,11 @@ Framework-agnostic core with a [Pi](https://github.com/earendil-works/pi) extens
 
 ```
 core/                          Pi-independent, reusable
+  storage.ts                   Shared storage layer (paths, JSON/JSONL I/O)
   registry.ts                  Agent identity (UUID, online/offline)
   messaging.ts                 Crash-safe file-based inboxes
-  backlog.ts                   Ordered task queue
+  backlog.ts                   Ordered backlog queue (BacklogItem)
+  task-comments.ts             Task-scoped comments and activity
   reservations.ts              File/directory reservations
   journal.ts                   Decision & learning log
   index.ts                     Public API + built-in roles
@@ -100,6 +102,48 @@ Missing fields are prompted interactively.
 
 Project context is stored in `artifacts/project/CONTEXT.md` and auto-injected into agent prompts.
 
+### Task Workflow
+
+Task assignments are **state-derived** — agents discover their tasks from the current backlog, not from queued inbox messages. This ensures task context is always current and never stale.
+
+```bash
+# View task details + comment history
+amux_task({ action: "show", id: "TASK-01" })
+
+# Add a task-scoped comment (like PR comments)
+amux_task({ action: "comment", id: "TASK-01", content: "Looks good, one suggestion..." })
+
+# Compact project progress overview
+/amux progress
+amux_task({ action: "summary" })
+```
+
+Lifecycle events (assign, pick, done, drop, block) are automatically recorded as activity in `task-comments/<TASK-ID>.jsonl`. Use `amux_send` only for exceptional non-task communication.
+
+### Backlog Model
+
+Backlog items (`BacklogItem`) support optional structure fields:
+
+| Field | Purpose |
+|-------|---------|
+| `itemType` | `task` (default), `initiative`, `milestone`, `bug`, `chore`, `spec` |
+| `dependsOn` | Array of task IDs that must be done before this item can be picked |
+| `parentId` | Parent item ID for hierarchy grouping |
+| `order` | Sort order within siblings |
+
+Existing items without these fields behave as regular tasks. IDs remain `TASK-*`.
+
+### Availability
+
+```bash
+/amux status set idle        # Ready for new work
+/amux status set working     # Actively working (auto-set on pick)
+/amux status set focus       # Do not interrupt
+/amux status set away        # Unavailable
+```
+
+Availability is auto-updated by task lifecycle: `pick` → working, `done`/`drop` → idle (preserves explicit focus/away). Idle agents receive a single generic attention signal when new work is assigned; working/focus/away agents are not interrupted.
+
 ### Manage
 
 ```
@@ -119,7 +163,7 @@ Project context is stored in `artifacts/project/CONTEXT.md` and auto-injected in
 | `amux_broadcast` | -- | Broadcast to all agents |
 | `amux_artifacts` | -- | List shared documents |
 | `amux_reserve` | claim, release, list | File/directory reservations |
-| `amux_task` | add, list, show, comment, assign, pick, done, drop, block | Task backlog with comments, dependencies, batch assign |
+| `amux_task` | add, list, show, comment, assign, pick, done, drop, block, summary | Task backlog with comments, dependencies, batch assign |
 | `amux_journal` | add, list | Record decisions and learnings |
 
 ## Built-in Roles
