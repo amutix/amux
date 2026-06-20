@@ -361,6 +361,29 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
+    // Inject current task state (state-derived, never stale)
+    if (myId) {
+      const backlog = await readBacklog(mySession);
+      const inProgress = backlog.filter((t) => t.status === "in-progress" && t.assigneeId === myId);
+      const assigned = backlog.filter((t) => t.status === "assigned" && t.assigneeId === myId);
+
+      if (inProgress.length > 0) {
+        const active = inProgress[0]!;
+        extra += `\n\n## Active Task\n${active.id}: ${active.title}`;
+        if (active.files?.length) extra += `\nFiles: ${active.files.join(", ")}`;
+        const comments = readTaskComments(mySession, active.id);
+        if (comments.length > 0) {
+          const recent = comments.slice(-3);
+          extra += `\nRecent activity:\n${recent.map((c) => `- ${formatTaskComment(c)}`).join("\n")}`;
+        }
+      }
+
+      if (assigned.length > 0) {
+        const ids = assigned.map((t) => `${t.id}: ${t.title}`).join("\n  ");
+        extra += `\n\n## Assigned Tasks (${assigned.length})\n  ${ids}\n\nUse amux_task show <id> for details, or amux_task pick <id> to start working.`;
+      }
+    }
+
     // Inject project context (CONTEXT.md)
     const projectCtx = readContextFile(projectArtifactsDir());
     if (projectCtx) {
@@ -1090,38 +1113,13 @@ export default function (pi: ExtensionAPI) {
             });
           }
 
-          // Send single batched notification
-          const taskList = toAssign.map((t) => {
-            const filesStr = t.files?.length ? `\nFiles: ${t.files.join(", ")}` : "";
-            const descStr = t.description ? `\n${t.description}` : "";
-            const depsStr = t.dependsOn?.length ? `\nDepends on: ${t.dependsOn.join(", ")}` : "";
-            return `${t.id}: ${t.title}${descStr}${depsStr}${filesStr}`;
-          }).join("\n\n");
-
-          const batchLabel = toAssign.length === 1 ? "Task" : `${toAssign.length} tasks`;
-          const notification =
-            `📋 ${batchLabel} assigned to you:\n${taskList}` +
-            `\n\n→ Use amux_task with action "pick" and id "<TASK-ID>" to accept and start working`;
-
-          const msg: InboxMessage = {
-            id: newMessageId(),
-            from: myId,
-            fromName: myName,
-            fromRole: myRoleName,
-            fromSession: mySession,
-            timestamp: new Date().toISOString(),
-            message: notification,
-          };
-          sendToInbox(target.session, target.id, msg);
-
-          const targetAddr = formatAddress(target.session, target.name);
           const assignedIds = toAssign.map((t) => t.id).join(", ");
           return {
             content: [{
               type: "text",
-              text: `Assigned ${assignedIds} to ${target.name}. Notification sent to ${targetAddr}.`,
+              text: `Assigned ${assignedIds} to ${target.name}. Task state updated; visible via amux_task show.`,
             }],
-            details: { tasks: toAssign, notifiedAgent: targetAddr },
+            details: { tasks: toAssign },
           };
         }
 
@@ -1500,8 +1498,20 @@ export default function (pi: ExtensionAPI) {
       return `  ${a.name} (${roleLabel})${marker}`;
     });
 
+    // Task state summary
+    let taskLine = "";
+    const backlog = await readBacklog(mySession);
+    const inProgress = backlog.filter((t) => t.status === "in-progress" && t.assigneeId === myId);
+    const assigned = backlog.filter((t) => t.status === "assigned" && t.assigneeId === myId);
+    if (inProgress.length > 0) {
+      taskLine = `\nActive: ${inProgress[0]!.id} [in-progress] \u2014 ${inProgress[0]!.title}`;
+    } else if (assigned.length > 0) {
+      const ids = assigned.map((t) => t.id).join(", ");
+      taskLine = `\n${assigned.length} assigned task(s): ${ids}`;
+    }
+
     ctx.ui.notify(
-      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})\n\nOnline:\n${agentLines.join("\n")}\n\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux context       Show/edit project context\n  /amux workspace     Git workspace setup and sync`,
+      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux context       Show/edit project context\n  /amux workspace     Git workspace setup and sync`,
       "info"
     );
   }

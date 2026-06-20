@@ -391,7 +391,7 @@ describe("Integration: full agent workflow", () => {
     assert.equal(Object.keys(await readRegistry(session)).length, 2);
   });
 
-  it("architect creates task and sends notification", async () => {
+  it("architect creates and assigns task (state-driven, no inbox)", async () => {
     await goOnline(session, architectId, process.pid);
 
     await addTask(session, {
@@ -399,24 +399,29 @@ describe("Integration: full agent workflow", () => {
       createdBy: "Alice", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
 
-    ensureInbox(session, developerId);
-    sendToInbox(session, developerId, {
-      id: newMessageId(), from: architectId, fromName: "Alice",
-      fromRole: "architect", fromSession: session,
-      timestamp: new Date().toISOString(), message: "TASK-01 assigned to you",
+    // Assign via task state + activity record (no inbox message)
+    await updateTask(session, "TASK-01", {
+      status: "assigned", assignee: "Bob", assigneeId: developerId,
+    });
+    appendTaskComment(session, "TASK-01", {
+      timestamp: new Date().toISOString(),
+      agent: "Alice", agentId: architectId,
+      type: "activity",
+      text: "Assigned to Bob by Alice",
     });
 
-    assert.equal(getRecoverableMessages(session, developerId).length, 1);
+    const task = await getTask(session, "TASK-01");
+    assert.equal(task!.status, "assigned");
+    assert.equal(task!.assigneeId, developerId);
   });
 
-  it("developer joins, picks up message, picks task, reserves files", async () => {
+  it("developer joins, sees assignment via state, picks task, reserves files", async () => {
     await goOnline(session, developerId, process.pid);
 
-    // Process message
-    const msgs = getRecoverableMessages(session, developerId);
-    appendToHistory(session, msgs[0]!.msg);
-    markAsDelivered(session, developerId, msgs[0]!.filename);
-    confirmDelivered(session, developerId);
+    // Assignment visible via task state (no inbox messages to process)
+    const task = await getTask(session, "TASK-01");
+    assert.equal(task!.status, "assigned");
+    assert.equal(task!.assigneeId, developerId);
 
     // Pick task + reserve
     await updateTask(session, "TASK-01", {

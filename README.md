@@ -113,7 +113,7 @@ Project context is stored in `artifacts/project/CONTEXT.md` and auto-injected in
 |------|---------|---------|
 | `amux_role` | add, list, remove | Manage role definitions |
 | `amux_list` | -- | List online/offline agents |
-| `amux_send` | -- | Send message to an agent |
+| `amux_send` | -- | Send message to an agent (exceptional, non-task communication) |
 | `amux_broadcast` | -- | Broadcast to all agents |
 | `amux_artifacts` | -- | List shared documents |
 | `amux_reserve` | claim, release, list | File/directory reservations |
@@ -165,7 +165,7 @@ Sync runs `git fetch origin` followed by `git rebase origin/<mainBranch>`, where
 - **Heartbeat presence** -- crashed agents auto-expire after 90s, stale reservations cleared automatically
 - **Crash-safe messaging** -- messages survive crashes, delivered on reconnect
 - **File reservations** -- claim files before editing, prevent conflicts
-- **Task backlog** -- task-scoped comments/activity, dependencies (dependsOn), batch assign, assignee ownership
+- **Task backlog** -- state-derived workflow with task-scoped comments, dependencies, batch assign, assignee ownership. Assignments are visible via task state, not inbox messages.
 - **Shared journal** -- decisions and learnings in every agent's context
 - **Git workspaces** -- isolated worktrees per agent
 - **Built-in roles** -- ready to use, customizable per project
