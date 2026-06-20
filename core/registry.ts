@@ -24,6 +24,7 @@ export interface AgentInfo {
   role: string; // human-readable role description
   roleName?: string; // references a RoleDefinition name
   workspace?: string; // git worktree path
+  model?: string; // preferred LLM model (e.g. anthropic/claude-sonnet-4)
   cwd: string;
   pane?: string; // tmux pane target (optional — only if tmux)
   pid: number;

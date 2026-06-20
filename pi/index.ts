@@ -92,6 +92,7 @@ export default function (pi: ExtensionAPI) {
   let mySession: string | undefined;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let inboxWatcher: FSWatcher | undefined;
+  let currentModelStr: string | undefined;
   let currentCtx: ExtensionContext | undefined;
 
   function myAddress(): string {
@@ -301,6 +302,20 @@ export default function (pi: ExtensionAPI) {
         ...event.content,
       ],
     };
+  });
+
+
+  // -- Auto-save model preference --
+
+  pi.on("model_select", async (event) => {
+    if (!event.model) return;
+    const modelId = `${event.model.provider}/${event.model.id}`;
+    currentModelStr = modelId;
+
+    // Auto-save to agent record (skip "restore" -- that's not a user choice)
+    if (event.source !== "restore" && mySession && myId) {
+      await updateAgent(mySession, myId, { model: modelId }).catch(() => {});
+    }
   });
 
   // -- System Prompt Injection ----------------------------------
@@ -1389,11 +1404,17 @@ export default function (pi: ExtensionAPI) {
     await updateAgent(mySession, myId, { cwd: ctx.cwd });
     await startAgent(ctx);
 
+    // Apply saved model
+    if (agent.model) {
+      await trySetModel(ctx, agent.model);
+    }
+
     const pending = getRecoverableMessages(mySession, myId);
     const pendingNote = pending.length > 0 ? `\n${pending.length} message(s) waiting.` : "";
+    const modelNote = agent.model ? `\nModel: ${agent.model}` : "";
     const wsNote = agent.workspace ? `\nWorkspace: ${agent.workspace}` : "";
     ctx.ui.notify(
-      `Joined "${project}" as "${myName}" (${myRoleName || "no role"}).${wsNote}${pendingNote}`,
+      `Joined "${project}" as "${myName}" (${myRoleName || "no role"}).${modelNote}${wsNote}${pendingNote}`,
       "info"
     );
   }
@@ -1625,6 +1646,14 @@ export default function (pi: ExtensionAPI) {
         }
       }
 
+
+      // Model (pre-filled with current Pi model)
+      let agentModel: string | undefined;
+      const modelInput = await ctx.ui.editor("Model:", currentModelStr || "");
+      if (modelInput?.trim()) {
+        agentModel = modelInput.trim();
+      }
+
       // Workspace
       let wsChoice: string | undefined;
       let wsPath: string | undefined;
@@ -1694,6 +1723,7 @@ export default function (pi: ExtensionAPI) {
         role: roleName ?? `Agent ${name}`,
         roleName,
         workspace,
+        model: agentModel,
         cwd: workspace || ctx.cwd,
         pid: 0,
         status: "offline",
