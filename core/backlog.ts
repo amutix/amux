@@ -34,6 +34,8 @@ export interface BacklogItem {
   completedAt?: string;
   summary?: string; // completion notes
   blockedReason?: string;
+  parentId?: string; // parent item ID for hierarchy
+  order?: number; // sort order within siblings
 }
 
 /** @deprecated Use BacklogItem. Preserved for backward compatibility. */

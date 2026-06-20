@@ -1435,3 +1435,53 @@ describe("BacklogItem itemType", () => {
     assert.equal(updated!.itemType, "bug");
   });
 });
+
+describe("BacklogItem hierarchy fields", () => {
+  const session = testSession("hierarchy");
+  after(() => cleanupSession(session));
+
+  let parentId: string;
+
+  it("creates a parent item", async () => {
+    const parent = await addTask(session, {
+      title: "Epic: Auth system", status: "todo", itemType: "initiative",
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    parentId = parent.id;
+    assert.equal(parent.parentId, undefined);
+  });
+
+  it("creates child items with parentId and order", async () => {
+    const child1 = await addTask(session, {
+      title: "Login flow", status: "todo", parentId,
+      order: 1,
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    const child2 = await addTask(session, {
+      title: "Signup flow", status: "todo", parentId,
+      order: 2,
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    assert.equal(child1.parentId, parentId);
+    assert.equal(child1.order, 1);
+    assert.equal(child2.parentId, parentId);
+    assert.equal(child2.order, 2);
+  });
+
+  it("parentId and order persist in backlog", async () => {
+    const backlog = await readBacklog(session);
+    const children = backlog.filter((t) => t.parentId === parentId);
+    assert.equal(children.length, 2);
+    assert.equal(children[0]!.order, 1);
+    assert.equal(children[1]!.order, 2);
+  });
+
+  it("items without parentId/order remain valid", async () => {
+    const standalone = await addTask(session, {
+      title: "Standalone task", status: "todo",
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    assert.equal(standalone.parentId, undefined);
+    assert.equal(standalone.order, undefined);
+  });
+});

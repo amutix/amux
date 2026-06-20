@@ -909,6 +909,8 @@ export default function (pi: ExtensionAPI) {
       ),
       files: Type.Optional(Type.Array(Type.String({ description: "Related file paths (auto-reserved on pick)" }))),
       dependsOn: Type.Optional(Type.Array(Type.String({ description: "Task IDs this task depends on (for add)" }))),
+      parentId: Type.Optional(Type.String({ description: "Parent item ID for hierarchy (for add)" })),
+      order: Type.Optional(Type.Number({ description: "Sort order within siblings (for add)" })),
       urgent: Type.Optional(Type.Boolean({ description: "If true, prepend to backlog instead of append" })),
       // assign, pick, done, drop, block
       id: Type.Optional(Type.String({ description: "Task ID (e.g. TASK-01)" })),
@@ -930,6 +932,13 @@ export default function (pi: ExtensionAPI) {
           if (!params.title) throw new Error("Title is required for add.");
 
           const now = new Date().toISOString();
+
+          // Validate parent reference if provided
+          if (params.parentId) {
+            const parent = await getTask(mySession, params.parentId);
+            if (!parent) throw new Error(`Parent item ${params.parentId} not found.`);
+          }
+
           const task = await addTask(
             mySession,
             {
@@ -938,6 +947,8 @@ export default function (pi: ExtensionAPI) {
               itemType: params.itemType as BacklogItem["itemType"],
               status: "todo",
               dependsOn: params.dependsOn,
+              parentId: params.parentId,
+              order: params.order,
               files: params.files,
               createdBy: myName,
               createdAt: now,
@@ -1021,6 +1032,8 @@ export default function (pi: ExtensionAPI) {
           if (task.description) text += `\n\n${task.description}`;
           text += `\n\nStatus: ${task.status}`;
           if (task.itemType && task.itemType !== "task") text += `\nType: ${task.itemType}`;
+          if (task.parentId) text += `\nParent: ${task.parentId}`;
+          if (task.order != null) text += `\nOrder: ${task.order}`;
           if (task.assignee) text += `\nAssignee: ${task.assignee}${task.assigneeId === myId ? " (you)" : ""}`;
           if (task.dependsOn?.length) {
             const unmet = unmetDependencies(task, tasks);
