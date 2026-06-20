@@ -1385,3 +1385,53 @@ describe("Agent availability and attention signals", () => {
     // This test documents the invariant at the core level
   });
 });
+
+describe("BacklogItem itemType", () => {
+  const session = testSession("item-type");
+  after(() => cleanupSession(session));
+
+  it("creates items with explicit itemType", async () => {
+    const bug = await addTask(session, {
+      title: "Fix login crash", status: "todo", itemType: "bug",
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    assert.equal(bug.itemType, "bug");
+
+    const spec = await addTask(session, {
+      title: "Auth spec", status: "todo", itemType: "spec",
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    assert.equal(spec.itemType, "spec");
+  });
+
+  it("items without itemType default to task semantics", async () => {
+    const task = await addTask(session, {
+      title: "Normal task", status: "todo",
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    assert.equal(task.itemType, undefined);
+    // Undefined itemType is treated as "task" — no behavior difference
+  });
+
+  it("itemType persists in backlog and can be read back", async () => {
+    const backlog = await readBacklog(session);
+    const bug = backlog.find((t) => t.title === "Fix login crash");
+    const spec = backlog.find((t) => t.title === "Auth spec");
+    const normal = backlog.find((t) => t.title === "Normal task");
+
+    assert.equal(bug!.itemType, "bug");
+    assert.equal(spec!.itemType, "spec");
+    assert.equal(normal!.itemType, undefined);
+  });
+
+  it("typed items support all standard operations", async () => {
+    const backlog = await readBacklog(session);
+    const bug = backlog.find((t) => t.title === "Fix login crash")!;
+
+    // Update, dependency check, etc. all work on typed items
+    await updateTask(session, bug.id, { status: "in-progress", assignee: "Dev" });
+    const updated = await getTask(session, bug.id);
+    assert.equal(updated!.status, "in-progress");
+    assert.equal(updated!.itemType, "bug");
+  });
+});

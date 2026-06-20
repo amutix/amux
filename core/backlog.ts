@@ -22,6 +22,7 @@ export interface BacklogItem {
   id: string; // "TASK-01" auto-incrementing
   title: string;
   description?: string;
+  itemType?: "task" | "initiative" | "milestone" | "bug" | "chore" | "spec";
   status: "todo" | "assigned" | "in-progress" | "done" | "blocked";
   assignee?: string; // agent display name
   assigneeId?: string; // agent UUID

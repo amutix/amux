@@ -902,6 +902,7 @@ export default function (pi: ExtensionAPI) {
       // add
       title: Type.Optional(Type.String({ description: "Task title (required for add)" })),
       description: Type.Optional(Type.String({ description: "Task description or acceptance criteria" })),
+      itemType: Type.Optional(Type.String({ description: "Item type: task (default), initiative, milestone, bug, chore, spec" })),
       files: Type.Optional(Type.Array(Type.String({ description: "Related file paths (auto-reserved on pick)" }))),
       dependsOn: Type.Optional(Type.Array(Type.String({ description: "Task IDs this task depends on (for add)" }))),
       urgent: Type.Optional(Type.Boolean({ description: "If true, prepend to backlog instead of append" })),
@@ -930,6 +931,7 @@ export default function (pi: ExtensionAPI) {
             {
               title: params.title,
               description: params.description,
+              itemType: params.itemType as BacklogItem["itemType"],
               status: "todo",
               dependsOn: params.dependsOn,
               files: params.files,
@@ -941,12 +943,13 @@ export default function (pi: ExtensionAPI) {
           );
 
           const urgentNote = params.urgent ? " (urgent  -- top of backlog)" : "";
+          const typeNote = task.itemType && task.itemType !== "task" ? `\n  Type: ${task.itemType}` : "";
           const filesNote = task.files?.length ? `\n  Files: ${task.files.join(", ")}` : "";
           const depsNote = task.dependsOn?.length ? `\n  Depends on: ${task.dependsOn.join(", ")}` : "";
           return {
             content: [{
               type: "text",
-              text: `Created ${task.id}: ${task.title}${urgentNote}${depsNote}${filesNote}`,
+              text: `Created ${task.id}: ${task.title}${urgentNote}${typeNote}${depsNote}${filesNote}`,
             }],
             details: { task },
           };
@@ -992,8 +995,9 @@ export default function (pi: ExtensionAPI) {
               ? `\n                              Summary: ${t.summary}` : "";
             const doneTime = t.status === "done" && t.completedAt
               ? ` (${formatDuration(Date.now() - new Date(t.completedAt).getTime())} ago)` : "";
+            const typeLabel = t.itemType && t.itemType !== "task" ? `(${t.itemType}) ` : "";
 
-            return `  #${String(pos).padStart(2)}  ${t.id}  [${t.status}]  ${t.title}${assigneeStr}${meMarker}${doneTime}${filesStr}${depsStr}${blockedStr}${summaryStr}`;
+            return `  #${String(pos).padStart(2)}  ${t.id}  ${typeLabel}[${t.status}]  ${t.title}${assigneeStr}${meMarker}${doneTime}${filesStr}${depsStr}${blockedStr}${summaryStr}`;
           });
 
           return {
@@ -1012,6 +1016,7 @@ export default function (pi: ExtensionAPI) {
           let text = `${task.id}: ${task.title}  [${task.status}]`;
           if (task.description) text += `\n\n${task.description}`;
           text += `\n\nStatus: ${task.status}`;
+          if (task.itemType && task.itemType !== "task") text += `\nType: ${task.itemType}`;
           if (task.assignee) text += `\nAssignee: ${task.assignee}${task.assigneeId === myId ? " (you)" : ""}`;
           if (task.dependsOn?.length) {
             const unmet = unmetDependencies(task, tasks);
