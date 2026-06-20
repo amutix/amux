@@ -31,13 +31,13 @@ cli/                           Command-line interface (uses core)
 pi install npm:@amutix/amux
 
 # Latest (git)
-pi install git:github.com/rezabaram/amux
+pi install git:github.com/amutix/amux
 ```
 
 ### Standalone (core module)
 
 ```bash
-git clone https://github.com/rezabaram/amux.git
+git clone https://github.com/amutix/amux.git
 ```
 
 Import the core module directly in your project:
