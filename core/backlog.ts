@@ -1,12 +1,12 @@
 /**
- * amux — Task Backlog
+ * amux — Backlog
  *
  * Lightweight ordered work queue for multi-agent projects.
+ * Each entry is a BacklogItem with auto-incrementing TASK-* IDs.
  * Array order = priority (first item = highest priority).
- * Auto-incrementing IDs: TASK-01, TASK-02, etc.
  *
  * File per session:
- *   backlog.json — Task[] (ordered array)
+ *   backlog.json — BacklogItem[] (ordered array)
  */
 
 import {
@@ -18,14 +18,14 @@ import {
 
 // ─── Types ───────────────────────────────────────────────────
 
-export interface Task {
+export interface BacklogItem {
   id: string; // "TASK-01" auto-incrementing
   title: string;
   description?: string;
   status: "todo" | "assigned" | "in-progress" | "done" | "blocked";
   assignee?: string; // agent display name
   assigneeId?: string; // agent UUID
-  dependsOn?: string[]; // task IDs that must be done before this task can be picked
+  dependsOn?: string[]; // task IDs that must be done before this item can be picked
   files?: string[]; // related files (auto-reserve on pick)
   createdBy: string;
   createdAt: string;
@@ -35,7 +35,10 @@ export interface Task {
   blockedReason?: string;
 }
 
-export type Backlog = Task[];
+/** @deprecated Use BacklogItem. Preserved for backward compatibility. */
+export type Task = BacklogItem;
+
+export type Backlog = BacklogItem[];
 
 // ─── Paths ───────────────────────────────────────────────────
 
