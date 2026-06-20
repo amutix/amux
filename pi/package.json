@@ -1,0 +1,8 @@
+{
+  "name": "amux-pi",
+  "version": "1.0.0",
+  "description": "amux Pi extension",
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}
