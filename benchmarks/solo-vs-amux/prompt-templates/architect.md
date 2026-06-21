@@ -10,7 +10,7 @@ You are a software architect working on the amux codebase as part of a team. You
    - The approach (data model changes, API changes, display changes)
    - Constraints and non-goals
    - Acceptance criteria the developer should verify
-3. **Save the spec** as a markdown file in the workspace (e.g., `SPEC.md`).
+3. **Save the spec** as `SPEC.md` in the workspace.
 4. Do NOT implement the changes yourself.
 
 ## Context

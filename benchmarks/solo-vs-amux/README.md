@@ -8,11 +8,15 @@ Compare solo-agent and amux-team workflows on quality-per-token for realistic mu
 # 1. Prepare workspace
 benchmarks/solo-vs-amux/bench.sh prepare
 
-# 2. Set up a solo run for task 1
+# 2. Set up a solo run for task 1, then run the generated script
 benchmarks/solo-vs-amux/bench.sh run-solo 1
+/tmp/amux-bench/solo-task-1/run-solo.sh
 
-# 3. Set up an amux run for task 1
+# 3. Set up an amux-style run for task 1, then run the generated scripts in order
 benchmarks/solo-vs-amux/bench.sh run-amux 1
+/tmp/amux-bench/amux-task-1/run-architect.sh
+/tmp/amux-bench/amux-task-1/run-developer.sh
+/tmp/amux-bench/amux-task-1/run-reviewer.sh
 
 # 4. After running each arm, collect results
 benchmarks/solo-vs-amux/bench.sh collect solo 1
@@ -24,7 +28,7 @@ benchmarks/solo-vs-amux/bench.sh report
 
 ## How It Works
 
-The harness creates **isolated git clones** at a fixed base commit. Each arm gets its own workspace that never mutates the source repo.
+The harness creates **isolated git clones** at a fixed base commit. The solo arm gets one workspace. The amux-style arm gets one shared sequential workspace so the architect can leave `SPEC.md`, the developer can implement and leave `HANDOFF.md`, and the reviewer can inspect the actual diff/test output. None of these workspaces mutate the source repo.
 
 **Solo arm**: A single agent receives the task description and works independently — discovers the codebase, designs the approach, implements, and tests.
 
@@ -43,7 +47,8 @@ Override via environment variables:
 | `SRC_REPO` | repo root | Source repo to clone |
 | `BASE_COMMIT` | `HEAD` | Starting commit for all arms |
 | `PI_BIN` | `pi` | Pi binary path |
-| `PI_MODEL` | _(none)_ | Pin model (e.g., `anthropic/claude-sonnet-4`) |
+| `PI_PROVIDER` | _(none)_ | Pin provider (e.g., `deepseek`) |
+| `PI_MODEL` | _(none)_ | Pin model (e.g., `deepseek/deepseek-v4-pro`) |
 | `PI_THINKING` | _(none)_ | Thinking mode (e.g., `high`) |
 
 ## Tasks
@@ -72,7 +77,7 @@ The report must state which method was used. Do not claim efficiency without exa
 
 ## Limitations
 
-- Runs are manual — the harness prepares workspaces but does not automate Pi invocations.
+- Runs are semi-manual — the harness prepares workspaces and executable Pi scripts, but the operator still runs each arm and records exact provider token usage externally when needed.
 - Token measurement depends on provider tooling, not the harness.
 - Tasks are designed for the amux codebase; results may not generalize.
 - The amux arm has coordination overhead; small tasks may not show compression benefit.

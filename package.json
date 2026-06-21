@@ -26,6 +26,7 @@
     "core/",
     "pi/",
     "cli/",
+    "benchmarks/",
     "README.md",
     "VISION.md",
     "LICENSE",

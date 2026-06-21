@@ -10,6 +10,7 @@ BENCH_ROOT="${BENCH_ROOT:-/tmp/amux-bench}"
 SRC_REPO="${SRC_REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 BASE_COMMIT="${BASE_COMMIT:-$(cd "$SRC_REPO" && git rev-parse HEAD)}"
 PI_BIN="${PI_BIN:-pi}"
+PI_PROVIDER="${PI_PROVIDER:-}"
 PI_MODEL="${PI_MODEL:-}"
 PI_THINKING="${PI_THINKING:-}"
 
@@ -23,9 +24,9 @@ amux benchmark harness — solo vs amux comparison
 Usage: bench.sh <command> [args]
 
 Commands:
-  prepare             Create isolated benchmark workspace
-  run-solo <n>        Set up solo arm workspace for task n
-  run-amux <n>        Set up amux (architect/developer/reviewer) arms for task n
+  prepare             Create isolated benchmark workspace metadata
+  run-solo <n>        Create solo workspace, prompt, and runnable script for task n
+  run-amux <n>        Create amux workspace plus architect/developer/reviewer scripts for task n
   collect <arm> <n>   Collect results after a run (arm: solo|amux)
   report              Generate markdown report from collected results
 
@@ -34,21 +35,67 @@ Environment:
   SRC_REPO            Source repo path (default: repo root)
   BASE_COMMIT         Starting commit (default: HEAD)
   PI_BIN              Pi binary (default: pi)
-  PI_MODEL            Pin model (e.g., anthropic/claude-sonnet-4)
+  PI_PROVIDER         Pin provider (e.g., deepseek)
+  PI_MODEL            Pin model (e.g., deepseek/deepseek-v4-pro)
   PI_THINKING         Thinking mode (e.g., high)
 EOF
 }
 
-cmd_prepare() {
-  echo "=== Preparing benchmark workspace ==="
+write_metadata() {
   mkdir -p "$BENCH_ROOT"
-  echo "Source repo:  $SRC_REPO"
-  echo "Base commit:  $BASE_COMMIT"
-  echo "Workspace:    $BENCH_ROOT"
   echo "$BASE_COMMIT" > "$BENCH_ROOT/base-commit.txt"
   echo "$SRC_REPO" > "$BENCH_ROOT/src-repo.txt"
   date -u +%Y-%m-%dT%H:%M:%SZ > "$BENCH_ROOT/prepared-at.txt"
-  if [[ -n "$PI_MODEL" ]]; then echo "$PI_MODEL" > "$BENCH_ROOT/model.txt"; fi
+  echo "${PI_PROVIDER:-not pinned}" > "$BENCH_ROOT/provider.txt"
+  echo "${PI_MODEL:-not pinned}" > "$BENCH_ROOT/model.txt"
+  echo "${PI_THINKING:-not set}" > "$BENCH_ROOT/thinking.txt"
+}
+
+write_runner() {
+  local dir="$1" label="$2" prompt_name="$3" log_name="$4"
+  local q_dir q_bin q_provider q_model q_thinking q_prompt q_log
+  printf -v q_dir '%q' "$dir"
+  printf -v q_bin '%q' "$PI_BIN"
+  printf -v q_provider '%q' "$PI_PROVIDER"
+  printf -v q_model '%q' "$PI_MODEL"
+  printf -v q_thinking '%q' "$PI_THINKING"
+  printf -v q_prompt '%q' "$prompt_name"
+  printf -v q_log '%q' "$log_name"
+
+  cat > "$dir/run-${label}.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+cd $q_dir
+PI_BIN=$q_bin
+PI_PROVIDER=$q_provider
+PI_MODEL=$q_model
+PI_THINKING=$q_thinking
+args=(--no-session --no-extensions --no-approve --mode text)
+[[ -n "\$PI_PROVIDER" ]] && args+=(--provider "\$PI_PROVIDER")
+[[ -n "\$PI_MODEL" ]] && args+=(--model "\$PI_MODEL")
+[[ -n "\$PI_THINKING" ]] && args+=(--thinking "\$PI_THINKING")
+"\$PI_BIN" "\${args[@]}" -p "\$(cat $q_prompt)" 2>&1 | tee $q_log
+EOF
+  chmod +x "$dir/run-${label}.sh"
+}
+
+clone_workspace() {
+  local dir="$1" branch="$2"
+  rm -rf "$dir"
+  mkdir -p "$(dirname "$dir")"
+  git clone --quiet --no-checkout "$SRC_REPO" "$dir"
+  (cd "$dir" && git checkout --quiet -b "$branch" "$BASE_COMMIT")
+}
+
+cmd_prepare() {
+  echo "=== Preparing benchmark workspace ==="
+  write_metadata
+  echo "Source repo:  $SRC_REPO"
+  echo "Base commit:  $BASE_COMMIT"
+  echo "Workspace:    $BENCH_ROOT"
+  echo "Provider:     ${PI_PROVIDER:-not pinned}"
+  echo "Model:        ${PI_MODEL:-not pinned}"
+  echo "Thinking:     ${PI_THINKING:-not set}"
   echo ""
   echo "Ready. Next: bench.sh run-solo <n>  or  bench.sh run-amux <n>"
 }
@@ -57,59 +104,66 @@ cmd_run_solo() {
   local n="$1"
   local task="$TASKS_DIR/task-${n}.md"
   [[ -f "$task" ]] || { echo "Error: $task not found."; exit 1; }
+  write_metadata
 
   local dir="$BENCH_ROOT/solo-task-${n}"
   echo "=== Setting up solo arm for task $n ==="
-  rm -rf "$dir"
-  git clone --no-checkout "$SRC_REPO" "$dir" 2>/dev/null
-  (cd "$dir" && git checkout "$BASE_COMMIT" -b bench-solo 2>/dev/null)
+  clone_workspace "$dir" "bench-solo-task-${n}"
 
-  # Assemble prompt
   local prompt="$dir/BENCHMARK_PROMPT.md"
   cat "$PROMPTS_DIR/solo.md" > "$prompt"
   printf '\n## Task\n\n' >> "$prompt"
   cat "$task" >> "$prompt"
+  write_runner "$dir" "solo" "BENCHMARK_PROMPT.md" "BENCHMARK_SOLO.log"
 
   echo ""
   echo "Solo workspace ready:"
   echo "  Dir:    $dir"
   echo "  Prompt: $dir/BENCHMARK_PROMPT.md"
+  echo "  Run:    $dir/run-solo.sh"
   echo ""
-  echo "Run:  cd $dir && ${PI_BIN}"
-  echo "Then give the agent the prompt from BENCHMARK_PROMPT.md."
-  echo "After: bench.sh collect solo $n"
+  echo "After:  $SCRIPT_DIR/bench.sh collect solo $n"
 }
 
 cmd_run_amux() {
   local n="$1"
   local task="$TASKS_DIR/task-${n}.md"
   [[ -f "$task" ]] || { echo "Error: $task not found."; exit 1; }
+  write_metadata
+
+  local dir="$BENCH_ROOT/amux-task-${n}"
+  echo "=== Setting up amux-style arm for task $n ==="
+  clone_workspace "$dir" "bench-amux-task-${n}"
 
   for role in architect developer reviewer; do
-    local dir="$BENCH_ROOT/amux-${role}-task-${n}"
-    echo "Setting up amux $role for task $n..."
-    rm -rf "$dir"
-    git clone --no-checkout "$SRC_REPO" "$dir" 2>/dev/null
-    (cd "$dir" && git checkout "$BASE_COMMIT" -b "bench-${role}" 2>/dev/null)
-
-    local prompt="$dir/BENCHMARK_PROMPT.md"
+    local upper
+    upper="$(printf '%s' "$role" | tr '[:lower:]' '[:upper:]')"
+    local prompt="$dir/BENCHMARK_${upper}_PROMPT.md"
     cat "$PROMPTS_DIR/${role}.md" > "$prompt"
     printf '\n## Task\n\n' >> "$prompt"
     cat "$task" >> "$prompt"
+    write_runner "$dir" "$role" "BENCHMARK_${upper}_PROMPT.md" "BENCHMARK_${upper}.log"
   done
 
   echo ""
-  echo "=== Amux arms ready for task $n ==="
-  echo "  Architect:  $BENCH_ROOT/amux-architect-task-${n}/"
-  echo "  Developer:  $BENCH_ROOT/amux-developer-task-${n}/"
-  echo "  Reviewer:   $BENCH_ROOT/amux-reviewer-task-${n}/"
+  echo "Amux workspace ready:"
+  echo "  Dir:       $dir"
+  echo "  Architect: $dir/run-architect.sh"
+  echo "  Developer: $dir/run-developer.sh"
+  echo "  Reviewer:  $dir/run-reviewer.sh"
   echo ""
-  echo "Workflow: architect → developer → reviewer"
-  echo "  1. Architect: design approach, write spec, list files/constraints"
-  echo "  2. Developer: implement from architect's spec (copy spec to developer workspace)"
-  echo "  3. Reviewer:  review developer's diff against spec + tests"
+  echo "Workflow in the same workspace:"
+  echo "  1. Run architect; it should write SPEC.md and no implementation."
+  echo "  2. Run developer; it should implement from SPEC.md and write HANDOFF.md."
+  echo "  3. Run reviewer; it should review spec + diff + tests and write REVIEW.md."
   echo ""
-  echo "After: bench.sh collect amux $n"
+  echo "After:  $SCRIPT_DIR/bench.sh collect amux $n"
+}
+
+copy_if_present() {
+  local src="$1" dst_dir="$2"
+  [[ -f "$src" ]] || return 0
+  cp "$src" "$dst_dir/$(basename "$src")"
 }
 
 cmd_collect() {
@@ -117,31 +171,51 @@ cmd_collect() {
   local out="$BENCH_ROOT/results/${arm}-task-${n}"
   mkdir -p "$out"
 
+  local d
   if [[ "$arm" == "solo" ]]; then
-    local d="$BENCH_ROOT/solo-task-${n}"
-    echo "Collecting solo results from $d..."
-    (cd "$d" && git diff "$BASE_COMMIT" > "$out/diff.patch" 2>/dev/null || true)
-    (cd "$d" && git log --oneline "$BASE_COMMIT"..HEAD > "$out/commits.txt" 2>/dev/null || true)
-    (cd "$d" && npm test > "$out/test-output.txt" 2>&1 || true)
-
+    d="$BENCH_ROOT/solo-task-${n}"
   elif [[ "$arm" == "amux" ]]; then
-    for role in architect developer reviewer; do
-      local d="$BENCH_ROOT/amux-${role}-task-${n}"
-      local rd="$out/$role"
-      mkdir -p "$rd"
-      echo "Collecting $role results..."
-      (cd "$d" && git diff "$BASE_COMMIT" > "$rd/diff.patch" 2>/dev/null || true)
-      (cd "$d" && git log --oneline "$BASE_COMMIT"..HEAD > "$rd/commits.txt" 2>/dev/null || true)
-    done
-    local dev="$BENCH_ROOT/amux-developer-task-${n}"
-    (cd "$dev" && npm test > "$out/test-output.txt" 2>&1 || true)
-
+    d="$BENCH_ROOT/amux-task-${n}"
   else
     echo "Error: arm must be 'solo' or 'amux'"; exit 1
   fi
+  [[ -d "$d/.git" ]] || { echo "Error: workspace not found: $d"; exit 1; }
+
+  echo "Collecting $arm results from $d..."
+  (cd "$d" && git status --short > "$out/git-status.txt" 2>/dev/null || true)
+  (cd "$d" && git diff --stat "$BASE_COMMIT" > "$out/diff-stat.txt" 2>/dev/null || true)
+  (cd "$d" && git diff "$BASE_COMMIT" > "$out/diff.patch" 2>/dev/null || true)
+  (cd "$d" && git log --oneline "$BASE_COMMIT"..HEAD > "$out/commits.txt" 2>/dev/null || true)
+  (cd "$d" && npm test > "$out/test-output.txt" 2>&1 || true)
+
+  copy_if_present "$d/BENCHMARK_SOLO.log" "$out"
+  copy_if_present "$d/BENCHMARK_ARCHITECT.log" "$out"
+  copy_if_present "$d/BENCHMARK_DEVELOPER.log" "$out"
+  copy_if_present "$d/BENCHMARK_REVIEWER.log" "$out"
+  copy_if_present "$d/SPEC.md" "$out"
+  copy_if_present "$d/HANDOFF.md" "$out"
+  copy_if_present "$d/REVIEW.md" "$out"
 
   date -u +%Y-%m-%dT%H:%M:%SZ > "$out/collected-at.txt"
   echo "Results collected to $out/"
+}
+
+count_diff_lines() {
+  local patch="$1" prefix="$2"
+  local adds dels
+  adds=$(grep -c '^+[^+]' "$patch" 2>/dev/null || true)
+  dels=$(grep -c '^-[^-]' "$patch" 2>/dev/null || true)
+  echo "${prefix}+${adds:-0} -${dels:-0} lines"
+}
+
+summarize_log_proxy() {
+  local log="$1"
+  [[ -f "$log" ]] || return 0
+  local chars tokens name
+  chars=$(wc -m < "$log" | tr -d ' ')
+  tokens=$(( (chars + 3) / 4 ))
+  name="$(basename "$log")"
+  echo "- ${name}: ~${tokens} stdout-proxy tokens (${chars} chars)"
 }
 
 cmd_report() {
@@ -151,8 +225,11 @@ cmd_report() {
     echo ""
     echo "- Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "- Base commit: $(cat "$BENCH_ROOT/base-commit.txt" 2>/dev/null || echo unknown)"
-    echo "- Model: ${PI_MODEL:-not pinned}"
-    echo "- Thinking: ${PI_THINKING:-not set}"
+    echo "- Provider: $(cat "$BENCH_ROOT/provider.txt" 2>/dev/null || echo "${PI_PROVIDER:-not pinned}")"
+    echo "- Model: $(cat "$BENCH_ROOT/model.txt" 2>/dev/null || echo "${PI_MODEL:-not pinned}")"
+    echo "- Thinking: $(cat "$BENCH_ROOT/thinking.txt" 2>/dev/null || echo "${PI_THINKING:-not set}")"
+    echo ""
+    echo "> Token note: stdout-proxy tokens are chars/4 from captured terminal logs. Prefer exact provider/Pi usage for conclusions."
     echo ""
 
     for rd in "$BENCH_ROOT/results"/*/; do
@@ -161,39 +238,35 @@ cmd_report() {
       echo "## $name"
       echo ""
 
-      # Diff stats
-      if [[ -f "$rd/diff.patch" ]]; then
-        local adds dels
-        adds=$(grep -c '^+[^+]' "$rd/diff.patch" 2>/dev/null || echo 0)
-        dels=$(grep -c '^-[^-]' "$rd/diff.patch" 2>/dev/null || echo 0)
-        echo "Diff: +${adds} -${dels} lines"
+      [[ -f "$rd/diff.patch" ]] && count_diff_lines "$rd/diff.patch" "Diff: "
+      if [[ -f "$rd/diff-stat.txt" ]]; then
+        echo ""
+        echo "Diff stat:"
+        echo '```'
+        cat "$rd/diff-stat.txt"
+        echo '```'
       fi
 
-      # Sub-role diffs (amux)
-      for sub in "$rd"/architect "$rd"/developer "$rd"/reviewer; do
-        [[ -d "$sub" ]] || continue
-        local r; r="$(basename "$sub")"
-        if [[ -f "$sub/diff.patch" ]]; then
-          local sa sd
-          sa=$(grep -c '^+[^+]' "$sub/diff.patch" 2>/dev/null || echo 0)
-          sd=$(grep -c '^-[^-]' "$sub/diff.patch" 2>/dev/null || echo 0)
-          echo "  $r: +${sa} -${sd} lines"
-        fi
-      done
+      if compgen -G "$rd/BENCHMARK_*.log" > /dev/null; then
+        echo ""
+        echo "Stdout proxy token estimates:"
+        for log in "$rd"/BENCHMARK_*.log; do
+          summarize_log_proxy "$log"
+        done
+      fi
 
-      # Test results
       if [[ -f "$rd/test-output.txt" ]]; then
         echo ""
         echo "Tests:"
         echo '```'
-        tail -8 "$rd/test-output.txt" | grep -E 'tests|pass|fail|suites' | head -5
+        tail -12 "$rd/test-output.txt" | grep -E 'tests|pass|fail|suites' | head -8 || tail -8 "$rd/test-output.txt"
         echo '```'
       fi
 
       echo ""
       echo "### Quality Score"
       echo ""
-      echo "_TODO: see scorecard-template.md for manual scoring rubric_"
+      echo "_TODO: copy scorecard-template.md for manual scoring rubric._"
       echo ""
     done
   } > "$rpt"
