@@ -15,6 +15,7 @@
 - **Team-state visibility and review handoff**: agent presence surfaces active/assigned work, and `amux_task review` marks implementation ready for review before final `done`.
 - **Stale-aware direct messages**: `amux_send` messages now carry optional intent/task metadata and display sent age on delivery.
 - **Reservation conflict context**: reservation warnings now show age, task linkage, owner work state, and task-comment guidance when possible.
+- **Lightweight review handoff guidance**: review-ready items emphasize spec + diff + tests, with free-form handoff summaries instead of rigid schemas.
 
 ### Changed
 

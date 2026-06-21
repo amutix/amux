@@ -151,6 +151,18 @@ amux_task({ action: "summary" })
 
 Lifecycle events (assign, pick, review, done, drop, block) are automatically recorded as activity in `task-comments/<ITEM-ID>.jsonl`. Use `review` when implementation is ready for review/integration; use `done` when work is reviewed, integrated, and verified. Simple workflows can still mark work done directly. Use `amux_send` only for exceptional non-task communication; delivered messages show intent and age so stale context is visible.
 
+For token-efficient review handoff, include a compact free-form summary when marking work ready for review:
+
+```bash
+amux_task({
+  action: "review",
+  id: "TASK-01",
+  summary: "Commit abc123 on agent/alice. Diff: extracted auth parser. Tests: npm test. Risk: token refresh edge cases."
+})
+```
+
+Reviewer flow: read the linked spec, inspect the diff, inspect test output, then add a task comment or mark the item done. This keeps review scoped to spec + diff + tests instead of reloading broad project context.
+
 When shaping larger work, create the high-level item first (`initiative` or `milestone`), add child executable items, review the structure with `/amux progress`, then assign the leaf work. Assign `task`/`bug`/`chore`/`spec` items rather than container items unless you intentionally want broad ownership.
 
 **Documentation types:**

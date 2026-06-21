@@ -137,8 +137,8 @@ export function renderTaskListRow(
     : "";
   const blockedStr = task.status === "blocked" && task.blockedReason
     ? `\n                              Blocked: ${task.blockedReason}` : "";
-  const summaryStr = task.status === "done" && task.summary
-    ? `\n                              Summary: ${task.summary}` : "";
+  const summaryStr = task.summary && (task.status === "done" || task.status === "review")
+    ? `\n                              ${task.status === "review" ? "Review handoff" : "Summary"}: ${task.summary}` : "";
   const doneTime = task.status === "done" && task.completedAt
     ? ` (${formatDuration(Date.now() - new Date(task.completedAt).getTime())} ago)` : "";
   const tLabel = task.itemType && task.itemType !== "task" ? `(${task.itemType}) ` : "";
@@ -183,7 +183,14 @@ export function renderTaskDetails(
   }
   if (task.files?.length) text += `\nFiles: ${task.files.join(", ")}`;
   if (task.blockedReason) text += `\nBlocked: ${task.blockedReason}`;
-  if (task.summary) text += `\nSummary: ${task.summary}`;
+  if (task.status === "review") {
+    text += task.summary
+      ? `\nReview handoff: ${task.summary}`
+      : `\nReview handoff: (none yet — include commit/branch, diff summary, tests run, and known risks)`;
+    text += `\nReviewer workflow: read spec → inspect diff → inspect tests → comment or mark done.`;
+  } else if (task.summary) {
+    text += `\nSummary: ${task.summary}`;
+  }
   text += `\nCreated: ${task.createdAt} by ${task.createdBy}`;
   if (task.completedAt) text += `\nCompleted: ${task.completedAt}`;
 

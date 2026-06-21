@@ -1050,8 +1050,9 @@ export default function (pi: ExtensionAPI) {
     promptGuidelines: [
       "Use action 'pick' to claim the next available task or accept an assigned task.",
       "Picking a task auto-reserves its files. Done/drop auto-releases them.",
-      "Use action 'review' when implementation is ready for review/integration, and 'done' when reviewed/integrated/verified.",
-      "Use action 'assign' to delegate executable leaf work items to same-session agents  -- the assignee accepts by picking.",
+      "Use action 'review' when implementation is ready for review/integration, and include commit/branch, diff summary, tests run, and known risks in summary.",
+      "Use action 'done' when reviewed/integrated/verified; reviewers should inspect spec + diff + tests before completing.",
+      "Use action 'assign' to delegate executable leaf work items to same-session agents  -- the assignee accepts by picking",
       "Create and review high-level initiatives/milestones and their children before assigning executable child work.",
       "It is OK to assign all defined leaf work up front; use dependsOn to enforce order, and assignees should pick one item at a time after completing the current item.",
       "When working on a child item, inspect its parent context with amux_task show before picking or implementing.",
@@ -1081,7 +1082,7 @@ export default function (pi: ExtensionAPI) {
       id: Type.Optional(Type.String({ description: "Task ID (e.g. TASK-01)" })),
       to: Type.Optional(Type.String({ description: "Agent name to assign the task to" })),
       reason: Type.Optional(Type.String({ description: "Reason for blocking, or approach note for pick" })),
-      summary: Type.Optional(Type.String({ description: "Summary for review or done" })),
+      summary: Type.Optional(Type.String({ description: "Summary for review or done. For review, include commit/branch, diff summary, tests run, and known risks." })),
       content: Type.Optional(Type.String({ description: "Comment text (for comment), or markdown spec content (for plan)" })),
       // list
       status: Type.Optional(Type.String({ description: "Filter by status: todo, assigned, in-progress, review, done, blocked" })),
@@ -1320,7 +1321,12 @@ export default function (pi: ExtensionAPI) {
           const reviewResult = await serviceReviewTask(mySession, params.id, myId, myName || "agent", params.summary);
 
           let reviewText = `◇ Ready for review ${reviewResult.task.id}: ${reviewResult.task.title}`;
-          if (params.summary) reviewText += `\n  Summary: ${params.summary}`;
+          if (params.summary) {
+            reviewText += `\n  Handoff: ${params.summary}`;
+          } else {
+            reviewText += `\n  Tip: include commit/branch, diff summary, tests run, and known risks in summary for token-efficient review.`;
+          }
+          reviewText += `\n  Reviewer flow: read spec → inspect diff → inspect tests → comment or done.`;
           if (reviewResult.released.length > 0) reviewText += `\n  Released: ${reviewResult.released.join(", ")}`;
 
           return {

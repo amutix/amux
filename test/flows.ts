@@ -1960,6 +1960,20 @@ describe("Renderer functions", () => {
     assert.ok(text.includes("Looks good!"));
   });
 
+  it("renderTaskDetails shows review handoff guidance", () => {
+    const task = baseItem({
+      status: "review",
+      specPath: "tasks/TASK-01.md",
+      summary: "Commit abc123. Diff: auth parser. Tests: npm test.",
+    });
+    const text = renderTaskDetails(task, [], { specPreview: "## Acceptance\nPass tests" });
+    assert.ok(text.includes("Review handoff"));
+    assert.ok(text.includes("Commit abc123"));
+    assert.ok(text.includes("Reviewer workflow"));
+    assert.ok(text.includes("Spec: tasks/TASK-01.md"));
+    assert.ok(text.includes("Pass tests"));
+  });
+
   it("renderTaskDetails shows spec preview", () => {
     const task = baseItem({ specPath: "tasks/TASK-01.md" });
     const text = renderTaskDetails(task, [], { specPreview: "## Objective\nBuild auth" });
