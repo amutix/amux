@@ -255,7 +255,7 @@ Sync runs `git fetch origin` followed by `git rebase origin/<mainBranch>`, where
 - **Heartbeat presence** -- crashed agents auto-expire after 90s, stale reservations cleared automatically
 - **Agent availability** -- idle/working/focus/away status, auto-updated by task lifecycle, generic attention signals for idle agents
 - **Crash-safe messaging** -- messages survive crashes, delivered on reconnect
-- **File reservations** -- claim files before editing, prevent conflicts
+- **File reservations** -- claim files before editing; conflicts show age, linked task context, and owner work state
 - **Task backlog** -- state-derived workflow with task-scoped comments, dependencies, batch assign, assignee ownership. Assignments are visible via task state, not inbox messages.
 - **Shared journal** -- decisions and learnings in every agent's context
 - **Git workspaces** -- isolated worktrees per agent

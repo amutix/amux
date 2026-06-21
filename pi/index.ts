@@ -71,6 +71,9 @@ import {
   checkConflict,
   clearStaleReservations,
   toWorkspaceRelative,
+  formatReservationAge,
+  formatReservationConflict,
+  reservationTaskId,
 } from "../core/reservations";
 import {
   type BacklogItem,
@@ -103,7 +106,7 @@ import {
   renderTaskDetails,
   renderProgressSummary,
   renderAgentPresence,
-  formatDuration,
+  renderAgentWorkState,
 } from "../core/renderers";
 import {
   serviceAssignTasks,
@@ -336,11 +339,20 @@ export default function (pi: ExtensionAPI) {
     if (!conflict) return;
 
     const { reservedPath, reservation, stale } = conflict;
-    const reasonStr = reservation.reason ? ` (${reservation.reason})` : "";
-    const staleNote = stale ? " [agent offline  -- stale reservation]" : "";
+    const taskId = reservationTaskId(reservation);
+    const owner = await findById(mySession, reservation.agentId);
+    const backlog = await readBacklog(mySession);
+    const ownerWork = renderAgentWorkState(reservation.agentId, backlog);
+    const ownerState = owner
+      ? [owner.availability, ownerWork].filter(Boolean).join(", ")
+      : ownerWork;
+    const ownerNote = ownerState ? ` Owner state: ${ownerState}.` : "";
+    const guidance = taskId
+      ? `Use amux_task comment on ${taskId} to coordinate.`
+      : `Use amux_send('${reservation.agent}', ...) only for exceptional coordination.`;
     const warning =
-      `⚠️ ${filePath} is reserved by ${reservation.agent}${reasonStr}${staleNote}. ` +
-      `Consider coordinating via amux_send('${reservation.agent}', ...).`;
+      `⚠️ ${filePath} conflicts with reservation ${formatReservationConflict(reservedPath, reservation, stale)}` +
+      `${ownerNote} ${guidance}`;
 
     // Prepend warning to result content
     return {
@@ -994,16 +1006,19 @@ export default function (pi: ExtensionAPI) {
           const online = await getOnlineAgents(mySession).catch(() => [] as AgentInfo[]);
           const onlineIds = new Set(online.map((a) => a.id));
 
-          const now = Date.now();
+          const backlog = await readBacklog(mySession);
           const lines = entries.map(([path, res]) => {
-            const elapsed = now - new Date(res.since).getTime();
-            const duration = formatDuration(elapsed);
+            const duration = formatReservationAge(res.since);
             const reasonStr = res.reason ? `  -- ${res.reason}` : "";
+            const taskId = reservationTaskId(res);
+            const taskStr = taskId ? ` [${taskId}]` : "";
             const stale = !onlineIds.has(res.agentId);
-            const staleStr = stale ? " [stale  -- agent offline]" : "";
+            const staleStr = stale ? " [stale -- agent offline]" : "";
+            const work = renderAgentWorkState(res.agentId, backlog);
+            const workStr = work ? ` (${work})` : ` (${duration})`;
             const isMe = res.agentId === myId;
             const marker = isMe ? " (you)" : "";
-            return `  ${path}  →  ${res.agent}${marker}${reasonStr} (${duration})${staleStr}`;
+            return `  ${path}  →  ${res.agent}${marker}${taskStr}${reasonStr}${workStr}${staleStr}`;
           });
 
           return {

@@ -78,6 +78,9 @@ import {
   pathsOverlap,
   toWorkspaceRelative,
   normalizePath,
+  reservationTaskId,
+  formatReservationAge,
+  formatReservationConflict,
 } from "../core/reservations.ts";
 
 import {
@@ -357,6 +360,22 @@ describe("File reservations", () => {
     assert.ok(await checkConflict(session, "src/auth/login.ts", agentB));
     await release(session, ["src/auth/login.ts"], agentA);
     assert.equal(await checkConflict(session, "src/auth/login.ts", agentB), null);
+  });
+
+  it("formats reservation conflicts with age and task context", async () => {
+    const reservation = {
+      agent: "A",
+      agentId: agentA,
+      since: new Date(Date.now() - 120000).toISOString(),
+      reason: "TASK-42: auth work",
+    };
+    assert.equal(reservationTaskId(reservation), "TASK-42");
+    assert.equal(formatReservationAge(reservation.since), "2m");
+    const text = formatReservationConflict("src/auth.ts", reservation);
+    assert.ok(text.includes("src/auth.ts"));
+    assert.ok(text.includes("A"));
+    assert.ok(text.includes("TASK-42"));
+    assert.ok(text.includes("2m"));
   });
 
   it("cleans stale reservations", async () => {

@@ -91,6 +91,42 @@ export function toWorkspaceRelative(filePath: string, cwd?: string): string {
   return rel;
 }
 
+// ─── Formatting Helpers ─────────────────────────────────────
+
+const ITEM_ID_RE = /\b(?:TASK|INIT|MS|BUG|CHORE|SPEC)-\d+\b/;
+
+/** Extract a backlog item ID from a reservation reason, if present. */
+export function reservationTaskId(reservation: Reservation): string | null {
+  const match = reservation.reason?.match(ITEM_ID_RE);
+  return match?.[0] ?? null;
+}
+
+/** Format reservation age relative to now. */
+export function formatReservationAge(since: string): string {
+  const ms = Date.now() - new Date(since).getTime();
+  if (ms < 0) return "just now";
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
+/** Format the stable core portion of a reservation conflict. */
+export function formatReservationConflict(
+  reservedPath: string,
+  reservation: Reservation,
+  stale = false,
+): string {
+  const age = formatReservationAge(reservation.since);
+  const reasonStr = reservation.reason ? ` (${reservation.reason})` : "";
+  const staleNote = stale ? " [agent offline -- stale reservation]" : "";
+  return `"${reservedPath}" is reserved by ${reservation.agent}${reasonStr} for ${age}${staleNote}.`;
+}
+
 // ─── Reservations ────────────────────────────────────────────
 
 /** Read all reservations for a session. */
@@ -137,11 +173,11 @@ export async function reserve(
           : false;
 
         if (!isStale) {
-          const reasonStr = reservation.reason ? ` (${reservation.reason})` : "";
-          throw new Error(
-            `Conflict: "${existingPath}" is reserved by ${reservation.agent}${reasonStr}. ` +
-              `Use amux_send('${reservation.agent}', ...) to coordinate.`
-          );
+          const taskId = reservationTaskId(reservation);
+          const guidance = taskId
+            ? `Use amux_task comment on ${taskId} to coordinate.`
+            : `Use amux_send('${reservation.agent}', ...) only for exceptional coordination.`;
+          throw new Error(`Conflict: ${formatReservationConflict(existingPath, reservation)} ${guidance}`);
         }
       }
     }
