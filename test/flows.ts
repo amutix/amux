@@ -41,6 +41,16 @@ import {
   parseAddress,
   type AgentInfo,
 } from "../core/registry.ts";
+import {
+  listRoleTemplates,
+  listTeamTemplates,
+  readRoleTemplate,
+  copyRoleProfile,
+  resolveRoleInstructions,
+  applyTeamTemplate,
+  roleProfileFullPath,
+  roleProfileRelPath,
+} from "../core/roles.ts";
 
 import {
   ensureInbox,
@@ -2205,5 +2215,101 @@ describe("Message staleness metadata", () => {
     };
     assert.equal(withMeta.category, "fyi");
     assert.equal(withMeta.taskId, "TASK-01");
+  });
+});
+
+describe("Role profiles and team templates", () => {
+  const session = testSession("roles");
+  after(() => cleanupSession(session));
+
+  it("lists bundled role templates", () => {
+    const templates = listRoleTemplates();
+    assert.ok(templates.includes("lead-architect"));
+    assert.ok(templates.includes("developer"));
+    assert.ok(templates.includes("reviewer"));
+  });
+
+  it("lists bundled team templates", () => {
+    const teams = listTeamTemplates();
+    const coreTeam = teams.find((t) => t.name === "core-team");
+    assert.ok(coreTeam);
+    assert.equal(coreTeam!.roles.length, 3);
+    assert.ok(coreTeam!.roles.some((r) => r.name === "lead-architect"));
+  });
+
+  it("reads bundled role template markdown", () => {
+    const content = readRoleTemplate("lead-architect");
+    assert.ok(content);
+    assert.ok(content!.includes("Lead Architect"));
+    assert.ok(content!.includes("## Mission"));
+  });
+
+  it("returns null for missing template", () => {
+    assert.equal(readRoleTemplate("nonexistent-role"), null);
+  });
+
+  it("copyRoleProfile copies markdown to project artifacts", () => {
+    const relPath = copyRoleProfile(session, "developer", "developer");
+    assert.equal(relPath, "roles/developer.md");
+    const fullPath = roleProfileFullPath(session, relPath!);
+    assert.ok(existsSync(fullPath));
+    const content = readF(fullPath, "utf8");
+    assert.ok(content.includes("Developer"));
+  });
+
+  it("copyRoleProfile preserves customized file without force", () => {
+    const relPath = roleProfileRelPath("developer");
+    const fullPath = roleProfileFullPath(session, relPath);
+    // Customize the file
+    writeFileSync(fullPath, "# Custom Developer\n\nMy edits.", "utf8");
+    // Copy again without force
+    copyRoleProfile(session, "developer", "developer");
+    const content = readF(fullPath, "utf8");
+    assert.ok(content.includes("My edits"), "Customized file should be preserved");
+  });
+
+  it("copyRoleProfile overwrites with force", () => {
+    copyRoleProfile(session, "developer", "developer", true);
+    const fullPath = roleProfileFullPath(session, roleProfileRelPath("developer"));
+    const content = readF(fullPath, "utf8");
+    assert.ok(content.includes("## Mission"), "Force should restore bundled content");
+  });
+
+  it("applyTeamTemplate registers roles with profilePath (no agents)", async () => {
+    const result = await applyTeamTemplate(session, "core-team");
+    assert.ok(result);
+    assert.equal(result!.applied.length, 3);
+    assert.ok(result!.applied.includes("lead-architect"));
+
+    // Roles registered with profilePath
+    const role = await getRole(session, "lead-architect");
+    assert.ok(role);
+    assert.equal(role!.profilePath, "roles/lead-architect.md");
+    assert.equal(role!.templateName, "lead-architect");
+
+    // No agents created
+    const registry = await readRegistry(session);
+    assert.equal(Object.keys(registry).length, 0, "apply-template must not create agents");
+  });
+
+  it("resolveRoleInstructions reads profilePath as source of truth", async () => {
+    const role = await getRole(session, "lead-architect");
+    const resolved = resolveRoleInstructions(session, role!);
+    assert.ok(resolved.includes("Lead Architect"));
+    assert.ok(resolved.includes("orchestrate") || resolved.includes("coordinate"));
+  });
+
+  it("resolveRoleInstructions reflects edits to the profile file", async () => {
+    const role = await getRole(session, "developer");
+    const fullPath = roleProfileFullPath(session, role!.profilePath!);
+    writeFileSync(fullPath, "# Edited\n\nNew instructions.", "utf8");
+    const resolved = resolveRoleInstructions(session, role!);
+    assert.ok(resolved.includes("New instructions"), "Profile file edits should win");
+  });
+
+  it("resolveRoleInstructions falls back to instructions for legacy roles", () => {
+    const legacy = { name: "legacy", instructions: "Legacy inline instructions." };
+    const resolved = resolveRoleInstructions(session, legacy);
+    assert.equal(resolved, "Legacy inline instructions.");
   });
 });

@@ -26,6 +26,8 @@
     "core/",
     "pi/",
     "cli/",
+    "roles/",
+    "team-templates/",
     "benchmarks/",
     "README.md",
     "VISION.md",

@@ -53,6 +53,15 @@ import {
   writeSessionConfig,
 } from "../core/registry";
 import {
+  resolveRoleInstructions,
+  listRoleTemplates,
+  listTeamTemplates,
+  getTeamTemplate,
+  applyTeamTemplate,
+  readRoleTemplate,
+  roleProfileFullPath,
+} from "../core/roles";
+import {
   ensureInbox,
   sendToInbox,
   getRecoverableMessages,
@@ -241,7 +250,7 @@ export default function (pi: ExtensionAPI) {
     if (!role) return false;
     myRoleName = role.name;
     myRole = role.name;
-    myRoleInstructions = role.instructions;
+    myRoleInstructions = resolveRoleInstructions(session, role);
     return true;
   }
 
@@ -545,24 +554,30 @@ export default function (pi: ExtensionAPI) {
     name: "amux_role",
     label: "Manage Roles",
     description:
-      "Add, list, or remove role definitions for the current amux session. " +
+      "Add, list, remove, or apply role definitions for the current amux session. " +
       "Roles define a name and instructions that shape an agent's behavior. " +
+      "Use templates/apply-template for bundled role profiles and team setups. " +
       "Agents join projects with /amux join.",
-    promptSnippet: "Add, list, or remove amux role definitions",
+    promptSnippet: "Manage amux roles  -- add, list, remove, templates, apply-template, show, path",
     promptGuidelines: [
-      "Use amux_role to define roles before agents join with /amux join.",
+      "Use amux_role apply-template to quickly set up a standard team (e.g. core-team).",
+      "Use amux_role templates to see bundled role profiles and team templates.",
+      "Applying a team template copies role profiles and registers roles  -- it does not create agents.",
       "Each amux_role has a name and instructions that guide the agent's behavior.",
     ],
     parameters: Type.Object({
-      action: StringEnum(["add", "list", "remove"] as const),
+      action: StringEnum(["add", "list", "remove", "templates", "apply-template", "show", "path"] as const),
       name: Type.Optional(
-        Type.String({ description: 'Role name (required for "add" and "remove")' })
+        Type.String({ description: 'Role name (required for "add", "remove", "show", "path")' })
       ),
       instructions: Type.Optional(
         Type.String({
           description:
             'Instructions for the role  -- what the agent should do, focus on, and how to behave (required for "add")',
         })
+      ),
+      template: Type.Optional(
+        Type.String({ description: 'Team template name (required for "apply-template", e.g. "core-team")' })
       ),
     }),
 
@@ -622,6 +637,59 @@ export default function (pi: ExtensionAPI) {
           const removed = await removeRole(mySession, params.name);
           if (!removed) throw new Error(`Role "${params.name}" not found.`);
           return { content: [{ type: "text", text: `Role "${params.name}" removed.` }], details: {} };
+        }
+        case "templates": {
+          const roleTemplates = listRoleTemplates();
+          const teamTemplates = listTeamTemplates();
+          let text = "Bundled role profiles:\n";
+          text += roleTemplates.map((t) => `  - ${t}`).join("\n") || "  (none)";
+          text += "\n\nTeam templates:\n";
+          text += teamTemplates
+            .map((t) => `  - ${t.name}: ${t.description} [${t.roles.map((r) => r.name).join(", ")}]`)
+            .join("\n") || "  (none)";
+          text += "\n\nApply a team: amux_role apply-template <name>";
+          return { content: [{ type: "text", text }], details: { roleTemplates, teamTemplates } };
+        }
+        case "apply-template": {
+          if (!params.template) throw new Error("Template name is required for apply-template.");
+          const result = await applyTeamTemplate(mySession, params.template);
+          if (!result) {
+            const available = listTeamTemplates().map((t) => t.name).join(", ");
+            throw new Error(`Team template "${params.template}" not found. Available: ${available || "none"}`);
+          }
+          const agentHints = result.template.roles
+            .filter((r) => r.agentName)
+            .map((r) => `  ${r.name} \u2192 suggested agent "${r.agentName}" (workspace: ${r.workspace || "none"})`)
+            .join("\n");
+          let text = `Applied team template "${result.template.name}".\nRoles registered: ${result.applied.join(", ")}.`;
+          if (agentHints) {
+            text += `\n\nSuggested agents (create separately via /amux manage or /amux new agent):\n${agentHints}`;
+          }
+          return { content: [{ type: "text", text }], details: result };
+        }
+        case "show": {
+          if (!params.name) throw new Error("Role name is required for show.");
+          const role = await getRole(mySession, params.name);
+          if (!role) throw new Error(`Role "${params.name}" not found.`);
+          const resolved = resolveRoleInstructions(mySession, role);
+          let text = `# ${role.name}`;
+          if (role.profilePath) text += `\nProfile: ${role.profilePath}`;
+          if (role.templateName) text += `\nTemplate: ${role.templateName}`;
+          text += `\n\n${resolved}`;
+          return { content: [{ type: "text", text }], details: { role } };
+        }
+        case "path": {
+          if (!params.name) throw new Error("Role name is required for path.");
+          const role = await getRole(mySession, params.name);
+          if (!role) throw new Error(`Role "${params.name}" not found.`);
+          if (!role.profilePath) {
+            return {
+              content: [{ type: "text", text: `Role "${params.name}" has no profile file (legacy role with inline instructions).` }],
+              details: { role },
+            };
+          }
+          const fullPath = roleProfileFullPath(mySession, role.profilePath);
+          return { content: [{ type: "text", text: fullPath }], details: { path: fullPath, profilePath: role.profilePath } };
         }
         default:
           throw new Error(`Unknown action: ${params.action}`);

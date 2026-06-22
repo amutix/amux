@@ -212,7 +212,7 @@ Availability is auto-updated by task lifecycle: `pick` → working, `done`/`drop
 
 | Tool | Actions | Purpose |
 |------|---------|---------|
-| `amux_role` | add, list, remove | Manage role definitions |
+| `amux_role` | add, list, remove, templates, apply-template, show, path | Manage roles and apply team templates |
 | `amux_list` | -- | List online/offline agents |
 | `amux_send` | -- | Send message to an agent (exceptional, non-task communication) |
 | `amux_broadcast` | -- | Broadcast to all agents |
@@ -235,6 +235,33 @@ Five role templates ship with amux, ready to use during agent creation:
 | `planner` | Task breakdown, requirements, coordination |
 
 Built-in roles are copied to the project on first use and can be customized.
+
+## Role Profiles & Team Templates
+
+For lead-agent orchestration, amux ships richer **role profiles** (markdown) and **team templates** for quick setup.
+
+**Bundled role profiles** (`roles/*.md`):
+
+| Profile | Focus |
+|---------|-------|
+| `lead-architect` | Decompose goals, delegate, coordinate, guard quality |
+| `developer` | Implement assigned tasks from specs, write tests |
+| `reviewer` | Verify implementations against specs and acceptance criteria |
+
+**Team templates** (`team-templates/*.json`):
+
+| Template | Roles |
+|----------|-------|
+| `core-team` | lead-architect + developer + reviewer |
+
+```bash
+amux_role({ action: "templates" })                       # list bundled profiles + teams
+amux_role({ action: "apply-template", template: "core-team" })  # copy profiles + register roles
+amux_role({ action: "show", name: "lead-architect" })    # resolved role text
+amux_role({ action: "path", name: "lead-architect" })    # project-local profile file path
+```
+
+Applying a team template copies the role markdown into `artifacts/project/roles/` and registers role definitions. It **does not create agents** — create those separately via `/amux manage` or `/amux new agent`. The copied markdown is the source of truth (`profilePath`); edit it to customize a role. Existing customized profiles are preserved unless `force` is used. Legacy roles with inline `instructions` continue to work unchanged.
 
 ## Workspaces
 
