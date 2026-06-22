@@ -100,6 +100,7 @@ All commands are subcommands of `/amux`:
 | `/amux new <type>` | Create project, agent, or role directly |
 | `/amux project` | Show/set project vision/context |
 | `/amux context` | Legacy alias for project context (CONTEXT.md) |
+| `/amux wow` | Show/set team Ways of Working (WOW.md) |
 | `/amux status set` | Set your availability (idle/working/focus/away) |
 | `/amux workspace` | Git workspace operations (sync, status) |
 
@@ -131,6 +132,19 @@ Legacy aliases remain available:
 ```
 
 Project vision/context is stored in `artifacts/project/CONTEXT.md` and auto-injected into agent prompts. Prefer `/amux project vision ...` or the `amux_project` tool over direct file edits.
+
+### Ways of Working
+
+```bash
+/amux wow                         # Show current team Ways of Working
+/amux wow set <text>              # Replace WOW.md
+/amux wow append <text>           # Append to WOW.md
+/amux wow edit                    # Open editor to edit WOW.md
+/amux wow clear                   # Clear WOW.md
+/amux wow path                    # Print WOW.md file path
+```
+
+Ways of Working is stored in `artifacts/project/WOW.md` and auto-injected into agent prompts after the built-in common principles. Use it for project-specific collaboration norms: planning depth, review policy, definition of done, communication defaults, escalation, and retro habits. Keep it concise because it appears in every agent's prompt. Agents can also use the `amux_wow` tool.
 
 ### Task Workflow
 
@@ -208,7 +222,7 @@ Availability is auto-updated by task lifecycle: `pick` → working, `done`/`drop
   → Roles        new, delete
 ```
 
-## Tools (9)
+## Tools (10)
 
 | Tool | Actions | Purpose |
 |------|---------|---------|
@@ -218,6 +232,7 @@ Availability is auto-updated by task lifecycle: `pick` → working, `done`/`drop
 | `amux_broadcast` | -- | Broadcast to all agents |
 | `amux_artifacts` | -- | List shared documents |
 | `amux_project` | show, set, append, clear, path | Manage project vision/context |
+| `amux_wow` | show, set, append, clear, path | Manage project/team Ways of Working |
 | `amux_reserve` | claim, release, list | File/directory reservations |
 | `amux_task` | add, list, show, comment, assign, pick, review, done, drop, block, summary | Task backlog with comments, dependencies, batch assign |
 | `amux_journal` | add, list | Record decisions and learnings |
