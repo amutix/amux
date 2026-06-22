@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.2.0 (2026-06-22)
+
 ### Added
 
 - **Hierarchical progress view**: `/amux progress` and `amux_task summary` render parent/child backlog structure with status markers and child progress counts.
@@ -16,6 +18,13 @@
 - **Stale-aware direct messages**: `amux_send` messages now carry optional intent/task metadata and display sent age on delivery.
 - **Reservation conflict context**: reservation warnings now show age, task linkage, owner work state, and task-comment guidance when possible.
 - **Lightweight review handoff guidance**: review-ready items emphasize spec + diff + tests, with free-form handoff summaries instead of rigid schemas.
+- **Productized benchmark harness**: `benchmarks/solo-vs-amux/` includes isolated solo-vs-team runs, scoring guidance, prompt templates, and analysis docs.
+- **Project-local role profiles and team templates**: bundled `lead-architect`, `developer`, and `reviewer` role profiles plus the `core-team` template can be copied and customized per project.
+- **Lead orchestration prompt assembly**: amux prompt composition is now a deliberate host-runtime-appended coordination block with common principles, role/profile, work, team, and interface sections.
+- **Ways of Working**: project-specific `WOW.md` norms are prompt-injected after common principles and managed by `amux_wow` and `/amux wow ...`.
+- **Team learning workflow**: README and lead role docs now describe lightweight retrospectives and `wow-proposal` journal learnings.
+- **Prompt preview/debug surface**: `/amux prompt` shows a compact section summary, `/amux prompt <section>` previews focused sections, and `/amux prompt all` explicitly shows the full amux-appended block.
+- **Compact prompt coordination snapshot**: teammate rows include task titles, and prompt team context includes open-work counts, review/blocked highlights, and active reservations.
 
 ### Changed
 
@@ -23,6 +32,12 @@
 - Agents can be assigned future leaf work up front; dependencies and pick flow gate when work actually starts.
 - New project setup now guides users to set a project vision/context as the first alignment artifact.
 - Nested Pi package metadata is aligned with the root package and declares ESM mode.
+- Prompt preview and documentation use host-runtime wording for core behavior; Pi-specific wording is limited to adapter details.
+
+### Fixed
+
+- Avoid duplicate `projectArtifactsPath` barrel exports that could break extension loading.
+- Added regression coverage to catch duplicate wildcard exports from `core/index.ts`.
 
 ## 1.1.0 (2026-06-20)
 
