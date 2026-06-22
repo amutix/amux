@@ -2422,6 +2422,7 @@ describe("Prompt preview / debug surface", () => {
     const out = formatPromptSummary({ commonPrinciples: "COMMON", identity: "IDENT" });
     assert.ok(out.includes("APPENDS a coordination block"));
     assert.ok(out.includes("base system prompt is NOT shown"));
+    assert.equal(out.includes("Pi's base system prompt"), false);
     assert.ok(/Sections gathered \(2\/8\)/.test(out));
     assert.ok(out.includes("/amux prompt all"));
     assert.equal(out.includes("---- composed block"), false);
@@ -2440,6 +2441,7 @@ describe("Prompt preview / debug surface", () => {
     const out = formatPromptPreview({ commonPrinciples: "COMMON", identity: "IDENT" });
     assert.ok(out.includes("APPENDS a coordination block"));
     assert.ok(out.includes("base system prompt is NOT shown"));
+    assert.equal(out.includes("Pi's base system prompt"), false);
     assert.ok(/Sections gathered \(2\/8\)/.test(out));
     // The composed block is included verbatim
     assert.ok(out.includes("---- composed block (appended to base prompt) ----"));

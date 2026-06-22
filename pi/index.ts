@@ -427,8 +427,8 @@ export default function (pi: ExtensionAPI) {
   /**
    * Gather all amux coordination sections for the joined agent, in the
    * deliberate order. This is the SINGLE gathering path used by both the
-   * before_agent_start hook (which appends the assembled block to Pi's base
-   * system prompt) and the `/amux prompt` debug/preview command -- so the
+   * before_agent_start hook (where this adapter appends the assembled block
+   * to the host runtime's base prompt) and the `/amux prompt` debug/preview command -- so the
    * injected prompt and the previewed prompt can never drift.
    *
    * Caller must ensure the agent has joined (mySession/myId/myName set).
@@ -2610,8 +2610,8 @@ Read and write shared documents using the standard read/write/edit tools.
 
   /**
    * `/amux prompt` — debug/preview of the composed amux coordination block.
-   * Shows exactly what amux APPENDS to Pi's base system prompt for the joined
-   * agent (the base prompt itself is never shown). Uses the same gathering
+   * Shows exactly what amux APPENDS to the host agent runtime's base system
+   * prompt for the joined agent (the base prompt itself is never shown). Uses the same gathering
    * path (gatherPromptSections) as the before_agent_start hook, so the preview
    * cannot drift from what is actually injected.
    */

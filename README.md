@@ -155,7 +155,7 @@ Ways of Working is stored in `artifacts/project/WOW.md` and auto-injected into a
 /amux prompt all                  # Explicitly show the full amux-appended block
 ```
 
-amux **appends** a coordination block to Pi's base system prompt — it never replaces the base prompt. `/amux prompt` is a debug surface for understanding what each agent actually sees. By default it shows a compact section summary to avoid dumping the whole prompt; inspect a single section by name (for example `teamContext`) or use `/amux prompt all` when you explicitly want the full amux-appended block. Pi's base system prompt is **not** shown (amux never sees or owns it). The preview uses the same gathering path that injects the live prompt, so it never drifts from what agents receive.
+amux **appends** a coordination block to the host agent runtime's base system prompt — it never replaces the base prompt. `/amux prompt` is a debug surface for understanding what each agent actually sees. By default it shows a compact section summary to avoid dumping the whole prompt; inspect a single section by name (for example `teamContext`) or use `/amux prompt all` when you explicitly want the full amux-appended block. The host's base system prompt is **not** shown (amux never sees or owns it). The preview uses the same gathering path that injects the live prompt, so it never drifts from what agents receive.
 
 ### Task Workflow
 
@@ -307,7 +307,7 @@ This workflow is guidance, not magic automation — the lead agent orchestrates 
 
 ### Prompt composition
 
-amux **appends** a composed coordination block to Pi's base system prompt (it never replaces it). The block is assembled in a deliberate, documented order (see `core/prompt-assembly.ts`):
+amux **appends** a composed coordination block to the host agent runtime's base system prompt (it never replaces it). The block is assembled in a deliberate, documented order (see `core/prompt-assembly.ts`):
 
 1. Common amux operating principles (collaboration contract)
 2. Project vision/context

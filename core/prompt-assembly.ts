@@ -2,7 +2,7 @@
  * amux — Agent Prompt Assembly
  *
  * Deliberate, reviewable composition of the coordination block that amux
- * APPENDS to Pi's base system prompt (it never replaces the base prompt).
+ * APPENDS to the host agent runtime's base system prompt (it never replaces the base prompt).
  *
  * Section order is explicit and documented here so the prompt structure is
  * easy to review and test. Role profiles are one role-specific section, not
@@ -85,7 +85,7 @@ export const PROMPT_SECTION_ORDER: readonly (keyof PromptSections)[] = SECTION_O
  * Empty/whitespace-only sections are skipped. Returns the composed block
  * (without leading/trailing whitespace), or "" if all sections are empty.
  *
- * The caller appends this to Pi's base system prompt — it does not replace it.
+ * The caller appends this to the host agent runtime's base system prompt — it does not replace it.
  */
 export function assembleAgentPrompt(sections: PromptSections): string {
   return SECTION_ORDER.map((key) => sections[key])
@@ -119,9 +119,9 @@ export function skippedSectionNames(sections: PromptSections): string[] {
 function promptPreviewHeader(): string {
   return "amux prompt preview (debug)\n" +
     "==========================\n\n" +
-    "amux APPENDS a coordination block to Pi's base system prompt for the " +
-    "joined agent. Pi's base system prompt is NOT shown here — only amux " +
-    "sections are previewed.";
+    "amux APPENDS a coordination block to the host agent runtime's base " +
+    "system prompt for the joined agent. The host's base system prompt is " +
+    "NOT shown here — only amux sections are previewed.";
 }
 
 function promptSummary(sections: PromptSections): string {
