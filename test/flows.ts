@@ -52,6 +52,13 @@ import {
   roleProfileRelPath,
 } from "../core/roles.ts";
 import {
+  readWaysOfWorking,
+  writeWaysOfWorking,
+  appendWaysOfWorking,
+  clearWaysOfWorking,
+  wowPath,
+} from "../core/ways-of-working.ts";
+import {
   assembleAgentPrompt,
   COMMON_PRINCIPLES,
 } from "../core/prompt-assembly.ts";
@@ -2368,5 +2375,64 @@ describe("Prompt assembly", () => {
     assert.ok(COMMON_PRINCIPLES.includes("amux_task comment"));
     assert.ok(COMMON_PRINCIPLES.includes("executable leaf"));
     assert.ok(COMMON_PRINCIPLES.includes("Review before done"));
+  });
+});
+
+describe("Ways of Working (WOW.md)", () => {
+  const session = testSession("wow");
+  after(() => cleanupSession(session));
+
+  it("returns null when WOW.md does not exist", () => {
+    assert.equal(readWaysOfWorking(session), null);
+  });
+
+  it("writes and reads WoW content", () => {
+    writeWaysOfWorking(session, "## Communication\nPrefer task comments over DMs.");
+    const content = readWaysOfWorking(session);
+    assert.ok(content);
+    assert.ok(content!.includes("Prefer task comments"));
+    assert.ok(content!.includes("## Communication"));
+  });
+
+  it("appends to existing WoW", () => {
+    appendWaysOfWorking(session, "## Review\nRequire review before done.");
+    const content = readWaysOfWorking(session);
+    assert.ok(content!.includes("Prefer task comments"));
+    assert.ok(content!.includes("Require review"));
+  });
+
+  it("clear empties WoW (read returns null)", () => {
+    clearWaysOfWorking(session);
+    assert.equal(readWaysOfWorking(session), null, "empty content trimmed to null");
+  });
+
+  it("wowPath is under artifacts/project", () => {
+    const path = wowPath(session);
+    assert.ok(path.includes("artifacts/project"));
+    assert.ok(path.endsWith("WOW.md"));
+  });
+
+  it("assembler injects WoW after common principles", () => {
+    const out = assembleAgentPrompt({
+      commonPrinciples: "COMMON",
+      waysOfWorking: "WOW",
+      projectContext: "CTX",
+    });
+    const commonIdx = out.indexOf("COMMON");
+    const wowIdx = out.indexOf("WOW");
+    const ctxIdx = out.indexOf("CTX");
+    assert.ok(commonIdx < wowIdx, "WoW must follow common principles");
+    assert.ok(wowIdx < ctxIdx, "project context must follow WoW");
+  });
+
+  it("empty WoW section is skipped (backward compat)", () => {
+    const out = assembleAgentPrompt({
+      commonPrinciples: "COMMON",
+      waysOfWorking: "",
+      projectContext: "CTX",
+    });
+    assert.ok(!out.includes("Ways of Working"));
+    assert.ok(out.includes("COMMON"));
+    assert.ok(out.includes("CTX"));
   });
 });

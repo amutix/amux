@@ -37,23 +37,26 @@ You are part of a coordinated agent team. Shared operating rules:
 export interface PromptSections {
   /** 1. Common amux operating principles / collaboration contract. */
   commonPrinciples?: string;
-  /** 2. Project vision/context (CONTEXT.md). */
+  /** 2. Project Ways of Working (WOW.md) — extends common principles with team-specific norms. */
+  waysOfWorking?: string;
+  /** 3. Project vision/context (CONTEXT.md). */
   projectContext?: string;
-  /** 3. Role-specific profile/instructions. */
+  /** 4. Role-specific profile/instructions. */
   roleProfile?: string;
-  /** 4. Agent identity + workspace. */
+  /** 5. Agent identity + workspace. */
   identity?: string;
-  /** 5. Current work state: active/assigned/review items, spec, recent comments, journal. */
+  /** 6. Current work state: active/assigned/review items, spec, recent comments, journal. */
   workState?: string;
-  /** 6. Team/backlog/review/reservation context (agent roster, addressing). */
+  /** 7. Team/backlog/review/reservation context (agent roster, addressing). */
   teamContext?: string;
-  /** 7. Interface/tool guidance and shared artifact paths. */
+  /** 8. Interface/tool guidance and shared artifact paths. */
   interfaceGuidance?: string;
 }
 
 /** The deliberate section order. Documented here as the single source of truth. */
 const SECTION_ORDER: (keyof PromptSections)[] = [
   "commonPrinciples",
+  "waysOfWorking",
   "projectContext",
   "roleProfile",
   "identity",

@@ -18,6 +18,7 @@ export * from "./renderers";
 export * from "./task-service";
 export * from "./roles";
 export * from "./prompt-assembly";
+export * from "./ways-of-working";
 
 // RoleDefinition is already exported from registry.ts
 import type { RoleDefinition } from "./registry";

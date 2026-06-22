@@ -114,6 +114,7 @@ import {
   appendProjectContext,
   clearProjectContext,
 } from "../core/project-context";
+import { readWaysOfWorking } from "../core/ways-of-working";
 import {
   renderTaskListRow,
   renderTaskDetails,
@@ -407,7 +408,11 @@ export default function (pi: ExtensionAPI) {
 
     const backlog = await readBacklog(mySession);
 
-    // ── Section 2: Project vision/context ──
+    // ── Section 2: Ways of Working (extends common principles) ──
+    const wowContent = readWaysOfWorking(mySession);
+    const waysOfWorking = wowContent ? `## Ways of Working\n${wowContent}` : "";
+
+    // ── Section 3: Project vision/context ──
     const projectCtx = readProjectContext(mySession);
     const projectContext = projectCtx ? `## Project Context\n${projectCtx}` : "";
 
@@ -516,6 +521,7 @@ Read and write shared documents using the standard read/write/edit tools.
     // Compose the coordination block in deliberate order and APPEND to the base prompt
     const assembled = assembleAgentPrompt({
       commonPrinciples: COMMON_PRINCIPLES,
+      waysOfWorking,
       projectContext,
       roleProfile,
       identity,
