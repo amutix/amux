@@ -2910,12 +2910,15 @@ Read and write shared documents using the standard read/write/edit tools.
         return;
       }
 
-      // The host footer is width-limited and shared with other extensions.
-      // Avoid unbounded role/team text here; keep a stable active identity plus
-      // a bounded teammate count. Richer detail lives in `/amux` and prompt team context.
-      const others = Math.max(0, agents.length - 1);
-      const teamHint = others > 0 ? theme.fg("dim", ` +${others}`) : "";
-      ctx.ui.setStatus("amux", theme.fg("accent", `◆ ${me.name}@${mySession}`) + teamHint);
+      // The host footer is width-limited and may clip long status text, so put
+      // the active identity first. Do not artificially cap the rest: if the host
+      // clips, it clips less-important teammate detail after the active agent.
+      const others = agents.filter((a) => a.id !== myId);
+      const teammateSummary = others.length > 0
+        ? theme.fg("dim", ` | ${others.map((a) => a.name).join(", ")}`)
+        : "";
+      const roleSummary = me.roleName ? theme.fg("dim", ` | ${me.roleName}`) : "";
+      ctx.ui.setStatus("amux", theme.fg("accent", `◆ ${me.name}@${mySession}`) + teammateSummary + roleSummary);
     } catch {
       // Ignore widget errors
     }
