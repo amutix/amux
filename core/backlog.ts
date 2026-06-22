@@ -41,7 +41,6 @@ export interface BacklogItem {
   specPath?: string; // relative path to spec/plan file under artifacts/project/
 }
 
-/** @deprecated Use BacklogItem. Preserved for backward compatibility. */
 export type Task = BacklogItem;
 
 export type Backlog = BacklogItem[];

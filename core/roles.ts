@@ -6,7 +6,7 @@
  *
  * Project-local role profiles live under artifacts/project/roles/<name>.md
  * and are the source of truth for an agent's prompt when RoleDefinition.profilePath
- * is set. Legacy roles without profilePath fall back to stored instructions.
+ * is set. Roles without profilePath fall back to stored inline instructions.
  *
  * Pi-independent — file-based, no framework coupling.
  */
@@ -149,7 +149,7 @@ export function copyRoleProfile(
 /**
  * Resolve an agent's role instructions.
  * If profilePath is set and the file exists, the markdown file is the source
- * of truth. Otherwise fall back to the stored instructions (legacy roles).
+ * of truth. Otherwise fall back to stored inline instructions.
  */
 export function resolveRoleInstructions(session: string, role: RoleDefinition): string {
   if (role.profilePath) {

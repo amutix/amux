@@ -30,7 +30,6 @@ import {
   readRegistry,
   readAllRegistries,
   registerAgent,
-  removeAgent,
   updateAgent,
   updateHeartbeat,
   goOnline,
@@ -707,7 +706,7 @@ Read and write shared documents using the standard read/write/edit tools.
             .join("\n");
           let text = `Applied team template "${result.template.name}".\nRoles registered: ${result.applied.join(", ")}.`;
           if (agentHints) {
-            text += `\n\nSuggested agents (create separately via /amux manage or /amux new agent):\n${agentHints}`;
+            text += `\n\nSuggested agents (create separately via /amux new agent):\n${agentHints}`;
           }
           return { content: [{ type: "text", text }], details: result };
         }
@@ -728,7 +727,7 @@ Read and write shared documents using the standard read/write/edit tools.
           if (!role) throw new Error(`Role "${params.name}" not found.`);
           if (!role.profilePath) {
             return {
-              content: [{ type: "text", text: `Role "${params.name}" has no profile file (legacy role with inline instructions).` }],
+              content: [{ type: "text", text: `Role "${params.name}" uses inline instructions and has no profile file.` }],
               details: { role },
             };
           }
@@ -830,7 +829,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
     async execute(_id, params) {
       if (!mySession || !myId || !myName) {
-        throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+        throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
       }
 
       const target = await resolveAgent(params.to, mySession);
@@ -883,7 +882,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
     async execute(_id, params) {
       if (!mySession || !myId || !myName) {
-        throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+        throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
       }
 
       let agents: AgentInfo[];
@@ -935,7 +934,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
     async execute() {
       if (!mySession || !myId) {
-        throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+        throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
       }
 
       const sections: string[] = [];
@@ -1141,7 +1140,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
       switch (params.action) {
         case "claim": {
-          if (!myId || !myName) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!myId || !myName) throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
           if (!params.paths?.length) throw new Error("Paths are required for claim.");
 
           const online = await getOnlineAgents(mySession).catch(() => [] as AgentInfo[]);
@@ -1160,7 +1159,7 @@ Read and write shared documents using the standard read/write/edit tools.
         }
 
         case "release": {
-          if (!myId) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!myId) throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
           if (!params.paths?.length) throw new Error("Paths are required for release.");
 
           const released = await release(mySession, params.paths, myId);
@@ -1282,7 +1281,7 @@ Read and write shared documents using the standard read/write/edit tools.
       switch (params.action) {
         // -- add ----------------------------------------------
         case "add": {
-          if (!myName) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!myName) throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
           if (!params.title) throw new Error("Title is required for add.");
 
           const now = new Date().toISOString();
@@ -1369,7 +1368,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
         // -- comment ------------------------------------------
         case "comment": {
-          if (!myId || !myName) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!myId || !myName) throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
           if (!params.id) throw new Error("Task ID is required for comment.");
           if (!params.content) throw new Error("Comment text is required (pass content parameter).");
 
@@ -1392,7 +1391,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
         // -- plan ---------------------------------------------
         case "plan": {
-          if (!myId || !myName) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!myId || !myName) throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
           if (!params.id) throw new Error("Task ID is required for plan.");
 
           const task = await getTask(mySession, params.id);
@@ -1412,7 +1411,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
         // -- edit-plan ----------------------------------------
         case "edit-plan": {
-          if (!myId || !myName) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!myId || !myName) throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
           if (!params.id) throw new Error("Task ID is required for edit-plan.");
 
           const task = await getTask(mySession, params.id);
@@ -1440,7 +1439,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
         // -- assign -------------------------------------------
         case "assign": {
-          if (!myId || !myName) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!myId || !myName) throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
           if (!params.id) throw new Error("Task ID(s) required for assign (comma-separated for batch).");
           if (!params.to) throw new Error("Target agent name is required for assign.");
 
@@ -1484,7 +1483,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
         // -- pick ---------------------------------------------
         case "pick": {
-          if (!myId || !myName) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!myId || !myName) throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
 
           const pickResult = await servicePickTask(mySession, params.id || undefined, myId, myName);
 
@@ -1503,7 +1502,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
         // -- review -------------------------------------------
         case "review": {
-          if (!myId) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!myId) throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
           if (!params.id) throw new Error("Task ID is required for review.");
 
           const reviewResult = await serviceReviewTask(mySession, params.id, myId, myName || "agent", params.summary);
@@ -1525,7 +1524,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
         // -- done ---------------------------------------------
         case "done": {
-          if (!myId) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!myId) throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
           if (!params.id) throw new Error("Task ID is required for done.");
 
           const doneResult = await serviceCompleteTask(mySession, params.id, myId, myName || "agent", params.summary);
@@ -1542,7 +1541,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
         // -- drop ---------------------------------------------
         case "drop": {
-          if (!myId) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!myId) throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
           if (!params.id) throw new Error("Task ID is required for drop.");
 
           const dropResult = await serviceDropTask(mySession, params.id, myId, myName || "agent");
@@ -1558,7 +1557,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
         // -- block --------------------------------------------
         case "block": {
-          if (!myId) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!myId) throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
           if (!params.id) throw new Error("Task ID is required for block.");
           if (!params.reason) throw new Error("Reason is required for block.");
 
@@ -1613,7 +1612,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
       switch (params.action) {
         case "add": {
-          if (!myId || !myName) throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+          if (!myId || !myName) throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
           if (!params.type) throw new Error("Entry type is required for add (decision, learning, or progress).");
           if (!params.content) throw new Error("Content is required for add.");
 
@@ -1670,7 +1669,7 @@ Read and write shared documents using the standard read/write/edit tools.
   // -- /amux -- unified command with subcommands -----------------
 
   pi.registerCommand("amux", {
-    description: "amux: join, leave, manage, status",
+    description: "amux: join, leave, status",
     handler: async (args, ctx) => {
       const parts = args.trim().split(/\s+/);
       const sub = parts[0] || "";
@@ -1682,8 +1681,6 @@ Read and write shared documents using the standard read/write/edit tools.
           return handleJoin(parts.slice(1).join(" "), ctx);
         case "leave":
           return handleLeave(ctx);
-        case "manage":
-          return handleManage(ctx);
         case "workspace":
           return handleWorkspace(ctx);
         case "status":
@@ -1695,8 +1692,6 @@ Read and write shared documents using the standard read/write/edit tools.
           return handleShow(parts.slice(1), ctx);
         case "new":
           return handleNew(parts.slice(1), ctx);
-        case "context":
-          return handleContext(parts.slice(1), ctx);
         case "wow":
           return handleWow(parts.slice(1), ctx);
         case "prompt":
@@ -1705,7 +1700,7 @@ Read and write shared documents using the standard read/write/edit tools.
           return handleProject(parts.slice(1), ctx);
         default:
           ctx.ui.notify(
-            `Unknown: /amux ${sub}\n\nAvailable:\n  /amux              Status\n  /amux join          Join a project as an agent\n  /amux leave         Leave current project\n  /amux progress      Project progress overview\n  /amux show <id>     Show backlog item details\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux project       Manage project vision/context\n  /amux context       Show/edit project context (CONTEXT.md)\n  /amux wow           Show/edit team Ways of Working (WOW.md)\n  /amux prompt        Preview the amux coordination block for this agent\n  /amux status set    Set your availability (idle/working/focus/away)\n  /amux workspace     Git workspace setup and sync`,
+            `Unknown: /amux ${sub}\n\nAvailable:\n  /amux              Status\n  /amux join          Join a project as an agent\n  /amux leave         Leave current project\n  /amux progress      Project progress overview\n  /amux show <id>     Show backlog item details\n  /amux new <type>    Create project, agent, or role directly\n  /amux project       Manage project vision/context\n  /amux wow           Show/edit team Ways of Working (WOW.md)\n  /amux prompt        Preview the amux coordination block for this agent\n  /amux status set    Set your availability (idle/working/focus/away)\n  /amux workspace     Git workspace setup and sync`,
             "warning"
           );
       }
@@ -1749,7 +1744,7 @@ Read and write shared documents using the standard read/write/edit tools.
     const availStr = me?.availability ? ` | ${me.availability}${me.statusMessage ? `: ${me.statusMessage}` : ""}` : "";
 
     ctx.ui.notify(
-      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux progress      Project progress overview\n  /amux show <id>     Show backlog item details\n  /amux manage        Manage projects, agents, and roles\n  /amux new <type>    Create project, agent, or role directly\n  /amux project       Manage project vision/context\n  /amux context       Show/edit project context\n  /amux wow           Show/edit team Ways of Working\n  /amux prompt        Preview the amux coordination block for this agent\n  /amux status set    Set your availability\n  /amux workspace     Git workspace setup and sync`,
+      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux progress      Project progress overview\n  /amux show <id>     Show backlog item details\n  /amux new <type>    Create project, agent, or role directly\n  /amux project       Manage project vision/context\n  /amux wow           Show/edit team Ways of Working\n  /amux prompt        Preview the amux coordination block for this agent\n  /amux status set    Set your availability\n  /amux workspace     Git workspace setup and sync`,
       "info"
     );
   }
@@ -1814,14 +1809,14 @@ Read and write shared documents using the standard read/write/edit tools.
   // -- join handler --
 
   async function handleJoin(projectArg: string, ctx: ExtensionContext): Promise<void> {
-    // 1. Select project (no creation -- use /amux manage)
+    // 1. Select project (no creation -- use /amux new project)
     let project = projectArg.trim();
 
     if (!project) {
       const existing = await listSessions();
 
       if (existing.length === 0) {
-        ctx.ui.notify("No projects yet. Use /amux manage to create one.", "info");
+        ctx.ui.notify("No projects yet. Use /amux new project to create one.", "info");
         return;
       }
 
@@ -1833,7 +1828,7 @@ Read and write shared documents using the standard read/write/edit tools.
     // Verify project exists
     const { existsSync } = await import("node:fs");
     if (!existsSync(sessionDir(project))) {
-      ctx.ui.notify(`Project "${project}" not found. Use /amux manage to create it.`, "info");
+      ctx.ui.notify(`Project "${project}" not found. Use /amux new project to create it.`, "info");
       return;
     }
 
@@ -1845,14 +1840,14 @@ Read and write shared documents using the standard read/write/edit tools.
     const onlineAgents = allAgents.filter(isEffectivelyOnline);
 
     if (offlineAgents.length === 0 && onlineAgents.length === 0) {
-      ctx.ui.notify(`No agents in "${project}". Use /amux manage to create one.`, "info");
+      ctx.ui.notify(`No agents in "${project}". Use /amux new agent to create one.`, "info");
       return;
     }
 
     if (offlineAgents.length === 0) {
       const names = onlineAgents.map((a) => a.name).join(", ");
       ctx.ui.notify(
-        `All agents in "${project}" are online (${names}). Use /amux manage to create another.`,
+        `All agents in "${project}" are online (${names}). Use /amux new agent to create another.`,
         "info"
       );
       return;
@@ -1932,30 +1927,14 @@ Read and write shared documents using the standard read/write/edit tools.
     ctx.ui.notify(`Left project "${projectName}". Back to solo Pi.`, "info");
   }
 
-  // -- manage handler --
-
-  async function handleManage(ctx: ExtensionContext): Promise<void> {
-    const what = await ctx.ui.select("Manage:", ["Projects", "Agents", "Roles"]);
-    if (!what) return;
-
-    if (what === "Projects") {
-      await manageProjects(ctx);
-    } else if (what === "Agents") {
-      await manageAgents(ctx);
-    } else {
-      await manageRoles(ctx);
-    }
-  }
-
-
-  /** Resolve which project to manage. Uses current if joined, otherwise asks. */
-  async function resolveProjectForManage(ctx: ExtensionContext): Promise<string | null> {
+  /** Resolve which project to use. Uses current if joined, otherwise asks. */
+  async function resolveProjectForCommand(ctx: ExtensionContext): Promise<string | null> {
     if (mySession) return mySession;
 
     const projects = await listSessions();
 
     if (projects.length === 0) {
-      ctx.ui.notify("No projects yet. Create one with /amux manage > Projects.", "info");
+      ctx.ui.notify("No projects yet. Create one with /amux new project.", "info");
       return null;
     }
 
@@ -1963,378 +1942,6 @@ Read and write shared documents using the standard read/write/edit tools.
 
     return (await ctx.ui.select("Which project?", projects)) ?? null;
   }
-
-  async function manageProjects(ctx: ExtensionContext): Promise<void> {
-    const projects = await listSessions();
-
-    const NEW_PROJECT = "+ New project";
-    const options = [...projects, NEW_PROJECT];
-
-    const choice = await ctx.ui.select("Projects:", options);
-    if (!choice) return;
-
-    if (choice === NEW_PROJECT) {
-      // ---- COLLECT ALL INPUTS ----
-      const name = await ctx.ui.input("Project name:");
-      if (!name) { ctx.ui.notify("Cancelled.", "info"); return; }
-
-      const setRepo = await ctx.ui.confirm("Main repo?", "Set current directory as the main repo for this project?");
-
-      let needsGitInit = false;
-      if (setRepo) {
-        const gitCheck = await pi.exec("git", ["rev-parse", "--show-toplevel"], { timeout: 5000 });
-        if (gitCheck.code !== 0) {
-          needsGitInit = await ctx.ui.confirm("Not a git repo", "Current directory is not a git repo. Initialize one?");
-        }
-      }
-
-      // ---- EXECUTE ALL ACTIONS ----
-      const { mkdirSync: mkDir } = await import("node:fs");
-      mkDir(sessionDir(name), { recursive: true });
-
-      if (needsGitInit) {
-        await pi.exec("git", ["init"], { timeout: 5000 });
-      }
-
-      const newConfig: SessionConfig = { createdAt: new Date().toISOString() };
-      if (setRepo) {
-        newConfig.mainRepo = ctx.cwd;
-      }
-      await writeSessionConfig(name, newConfig);
-
-      if (setRepo && myId && mySession === name) {
-        await updateAgent(mySession, myId, { workspace: ctx.cwd });
-      }
-
-      ctx.ui.notify(`Project "${name}" created.${newConfig.mainRepo ? "\nMain repo: " + newConfig.mainRepo : ""}`, "info");
-      return;
-    }
-
-    const project = choice;
-
-    // Check for online agents
-    const onlineCount = (await getOnlineAgents(project)).length;
-
-    const actions = ["Set main repo", "Rename", "Delete"];
-    const action = await ctx.ui.select(`Project "${project}":`, actions);
-    if (!action) return;
-
-    if (action === "Set main repo") {
-      const gitCheck = await pi.exec("git", ["rev-parse", "--show-toplevel"], { timeout: 5000 });
-      if (gitCheck.code !== 0) {
-        const initGit = await ctx.ui.confirm("Not a git repo", "Current directory is not a git repo. Initialize one?");
-        if (initGit) {
-          await pi.exec("git", ["init"], { timeout: 5000 });
-        } else {
-          return;
-        }
-      }
-
-      const config = await readSessionConfig(project);
-      config.mainRepo = ctx.cwd;
-      await writeSessionConfig(project, config);
-      ctx.ui.notify(`Main repo set to: ${ctx.cwd}`, "info");
-
-    } else if (action === "Delete") {
-      if (onlineCount > 0) {
-        ctx.ui.notify(`Cannot delete: ${onlineCount} agent(s) online. They must /amux leave first.`, "warning");
-        return;
-      }
-      const confirm = await ctx.ui.confirm("Delete project?", `Permanently delete "${project}" and all its data?`);
-      if (!confirm) { ctx.ui.notify("Cancelled.", "info"); return; }
-
-      const { rmSync } = await import("node:fs");
-      rmSync(sessionDir(project), { recursive: true, force: true });
-      ctx.ui.notify(`Deleted project "${project}".`, "info");
-
-    } else if (action === "Rename") {
-      if (onlineCount > 0) {
-        ctx.ui.notify(`Cannot rename: ${onlineCount} agent(s) online. They must /amux leave first.`, "warning");
-        return;
-      }
-      const newName = await ctx.ui.input("New name:", project);
-      if (!newName || newName === project) { ctx.ui.notify("Cancelled.", "info"); return; }
-
-      const { renameSync, readFileSync: readF, writeFileSync: writeF } = await import("node:fs");
-      renameSync(sessionDir(project), sessionDir(newName));
-
-      // Update session field in agent records
-      try {
-        const agentsPath = sessionFile(newName, "agents.json");
-        const agents = JSON.parse(readF(agentsPath, "utf8"));
-        for (const agent of Object.values(agents) as AgentInfo[]) {
-          agent.session = newName;
-        }
-        writeF(agentsPath, JSON.stringify(agents, null, 2), "utf8");
-      } catch {}
-
-      ctx.ui.notify(`Renamed "${project}" to "${newName}".`, "info");
-    }
-  }
-
-  async function manageAgents(ctx: ExtensionContext): Promise<void> {
-    const session = await resolveProjectForManage(ctx);
-    if (!session) return;
-
-    const registry = await readRegistry(session);
-    const allAgents = Object.values(registry);
-
-    const NEW_AGENT = "+ New agent";
-    const options = [
-      ...allAgents.map((a) => {
-        const roleLabel = a.roleName ? ` (${a.roleName})` : "";
-        const status = isEffectivelyOnline(a) ? " [online]" : "";
-        return `${a.name}${roleLabel}${status}`;
-      }),
-      NEW_AGENT,
-    ];
-    const selected = await ctx.ui.select("Agents:", options);
-    if (!selected) return;
-
-    if (selected === NEW_AGENT) {
-      // ---- COLLECT ALL INPUTS FIRST ----
-
-      const name = await ctx.ui.input("Agent name:");
-      if (!name) { ctx.ui.notify("Cancelled.", "info"); return; }
-
-      // Role
-      const projectRoles = await readRoles(session);
-      const allRoles: RoleDefinition[] = [
-        ...Object.values(projectRoles),
-        ...BUILTIN_ROLES.filter((r) => !projectRoles[r.name]),
-      ];
-
-      let roleName: string | undefined;
-      let roleToAdd: RoleDefinition | undefined;
-      if (allRoles.length > 0) {
-        const roleOptions = allRoles.map((r) => {
-          const desc = r.description || r.instructions.slice(0, 60);
-          return `${r.name} -- ${desc}`;
-        });
-        const roleChoice = await ctx.ui.select("Role:", roleOptions);
-        if (!roleChoice) { ctx.ui.notify("Cancelled.", "info"); return; }
-        roleName = roleChoice.split(" -- ")[0]!;
-        // Check if built-in needs copying
-        if (!projectRoles[roleName]) {
-          roleToAdd = allRoles.find((r) => r.name === roleName);
-        }
-      }
-
-
-      // Model (pre-filled with current Pi model)
-      let agentModel: string | undefined;
-      const modelInput = await ctx.ui.editor("Model:", currentModelStr || "");
-      if (modelInput?.trim()) {
-        agentModel = modelInput.trim();
-      }
-
-      // Workspace
-      let wsChoice: string | undefined;
-      let wsPath: string | undefined;
-      const config = await readSessionConfig(session);
-      if (config.mainRepo) {
-        const currentDirUsed = allAgents.some((a) => a.workspace === ctx.cwd);
-        const wsOptions: string[] = ["New worktree"];
-        if (!currentDirUsed) {
-          wsOptions.push("Use current directory");
-        }
-        wsOptions.push("No workspace");
-
-        wsChoice = await ctx.ui.select("Workspace:", wsOptions);
-        if (!wsChoice) { ctx.ui.notify("Cancelled.", "info"); return; }
-
-        if (wsChoice === "New worktree") {
-          const { basename: bn, dirname: dn } = await import("node:path");
-          const repoName = bn(config.mainRepo);
-          const parentDir = dn(config.mainRepo);
-          const defaultPath = `${parentDir}/${repoName}-${sanitizeBranchName(name)}`;
-
-          const wsInput = await ctx.ui.editor("Worktree path:", defaultPath);
-          if (!wsInput?.trim()) { ctx.ui.notify("Cancelled.", "info"); return; }
-          wsPath = wsInput.trim();
-        } else if (wsChoice === "Use current directory") {
-          wsPath = ctx.cwd;
-        }
-      }
-
-      // ---- EXECUTE ALL ACTIONS ----
-
-      // 1. Copy built-in role if needed
-      if (roleToAdd) {
-        await addRole(session, roleToAdd);
-      }
-
-      // 2. Create worktree if requested
-      let workspace: string | undefined;
-      if (wsChoice === "New worktree" && wsPath && config.mainRepo) {
-        const branchName = `agent/${sanitizeBranchName(name)}`;
-        const result = await pi.exec(
-          "git", ["-C", config.mainRepo, "worktree", "add", wsPath, "-b", branchName],
-          { timeout: 30000 }
-        );
-        if (result.code !== 0) {
-          const retry = await pi.exec(
-            "git", ["-C", config.mainRepo, "worktree", "add", wsPath, branchName],
-            { timeout: 30000 }
-          );
-          if (retry.code !== 0) {
-            ctx.ui.notify(`Workspace creation failed: ${retry.stderr}\nAgent created without workspace.`, "warning");
-          } else {
-            workspace = wsPath;
-          }
-        } else {
-          workspace = wsPath;
-        }
-      } else if (wsChoice === "Use current directory") {
-        workspace = wsPath;
-      }
-
-      // 3. Create agent
-      const agent: AgentInfo = {
-        id: newAgentId(),
-        name,
-        session: session,
-        role: roleName ?? `Agent ${name}`,
-        roleName,
-        workspace,
-        model: agentModel,
-        cwd: workspace || ctx.cwd,
-        pid: 0,
-        status: "offline",
-        registeredAt: new Date().toISOString(),
-        lastHeartbeat: new Date().toISOString(),
-      };
-      try {
-        await registerAgent(session, agent);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        ctx.ui.notify(msg, "error");
-        return;
-      }
-
-      let msg = `Agent "${name}" created (offline).`;
-      if (roleName) msg += `\nRole: ${roleName}`;
-      if (workspace) msg += `\nWorkspace: ${workspace}`;
-      msg += `\nStart Pi${workspace ? " in " + workspace : ""} and /amux join.`;
-      ctx.ui.notify(msg, "info");
-      return;
-    }
-
-    // Selected existing agent
-    const selectedName = selected.split(" (")[0]!;
-    const agent = allAgents.find((a) => a.name === selectedName);
-    if (!agent) return;
-
-    if (agent.status === "online") {
-      ctx.ui.notify(`Agent "${agent.name}" is online. They must /amux leave first to rename or delete.`, "warning");
-      return;
-    }
-
-    const action = await ctx.ui.select(`Agent "${agent.name}":`, ["Rename", "Delete"]);
-    if (!action) return;
-
-    if (action === "Delete") {
-      const confirm = await ctx.ui.confirm("Delete agent?", `Permanently delete "${agent.name}"?`);
-      if (!confirm) { ctx.ui.notify("Cancelled.", "info"); return; }
-      await removeAgent(session, agent.id);
-      ctx.ui.notify(`Deleted agent "${agent.name}".`, "info");
-    } else if (action === "Rename") {
-      const newName = await ctx.ui.input("New name:", agent.name);
-      if (!newName || newName === agent.name) { ctx.ui.notify("Cancelled.", "info"); return; }
-      try {
-        await updateAgent(session, agent.id, { name: newName });
-        ctx.ui.notify(`Renamed "${agent.name}" to "${newName}".`, "info");
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        ctx.ui.notify(msg, "error");
-      }
-    }
-  }
-
-  async function manageRoles(ctx: ExtensionContext): Promise<void> {
-    const session = await resolveProjectForManage(ctx);
-    if (!session) return;
-
-    const roles = await readRoles(session);
-    const roleNames = Object.keys(roles);
-    const registry = await readRegistry(session);
-    const allAgents = Object.values(registry);
-
-    const ADD_NEW = "+ New role";
-    const options = [
-      ...roleNames.map((name) => {
-        const role = roles[name]!;
-        const desc = role.description || role.instructions.slice(0, 60);
-        const usedBy = allAgents.filter((a) => a.roleName === name).map((a) => a.name);
-        const builtinTag = isBuiltinRole(name) ? "built-in" : "custom";
-        const usageTag = usedBy.length > 0 ? `used by: ${usedBy.join(", ")}` : "unused";
-        return `${name} -- ${desc} (${builtinTag}, ${usageTag})`;
-      }),
-      ADD_NEW,
-    ];
-
-    const choice = await ctx.ui.select("Roles:", options);
-    if (!choice) return;
-
-    if (choice === ADD_NEW) {
-      const name = await ctx.ui.input("Role name:");
-      if (!name) { ctx.ui.notify("Cancelled.", "info"); return; }
-      const desc = await ctx.ui.input("Short description:");
-      if (!desc) { ctx.ui.notify("Cancelled.", "info"); return; }
-      const instructions = await ctx.ui.input("Full instructions:");
-      if (!instructions) { ctx.ui.notify("Cancelled.", "info"); return; }
-
-      await addRole(session, { name, description: desc, instructions });
-      ctx.ui.notify(`Role "${name}" added.`, "info");
-
-    } else {
-      // Selected an existing role
-      const selectedName = choice.split(" -- ")[0]!;
-      const role = roles[selectedName];
-      if (!role) return;
-
-      const builtin = isBuiltinRole(selectedName);
-      const usedBy = allAgents.filter((a) => a.roleName === selectedName).map((a) => a.name);
-      const inUse = usedBy.length > 0;
-
-      // Build action menu based on type and usage
-      // Built-in: View | Edit
-      // Custom (in use): View | Edit
-      // Custom (unused): View | Edit | Delete
-      const actions: string[] = ["View", "Edit"];
-      if (!builtin && !inUse) {
-        actions.push("Delete");
-      }
-
-      const action = await ctx.ui.select(`Role "${selectedName}":`, actions);
-      if (!action) return;
-
-      if (action === "View") {
-        const builtinNote = builtin ? " (built-in)" : "";
-        const usageNote = inUse ? `\nUsed by: ${usedBy.join(", ")}` : "\nNot in use";
-        const descNote = role.description ? `\nDescription: ${role.description}` : "";
-        ctx.ui.notify(
-          `Role: ${selectedName}${builtinNote}${descNote}${usageNote}\n\nInstructions:\n${role.instructions}`,
-          "info"
-        );
-      } else if (action === "Edit") {
-        const newInstructions = await ctx.ui.input("Instructions:", role.instructions);
-        if (!newInstructions || newInstructions === role.instructions) {
-          ctx.ui.notify("No changes.", "info");
-          return;
-        }
-        await addRole(session, { ...role, instructions: newInstructions });
-        ctx.ui.notify(`Role "${selectedName}" updated.`, "info");
-      } else if (action === "Delete") {
-        const confirm = await ctx.ui.confirm("Delete role?", `Permanently delete role "${selectedName}"?`);
-        if (!confirm) { ctx.ui.notify("Cancelled.", "info"); return; }
-
-        await removeRole(session, selectedName);
-        ctx.ui.notify(`Role "${selectedName}" deleted.`, "info");
-      }
-    }
-  }
-
 
 
   // -- workspace handler --
@@ -2470,14 +2077,14 @@ Read and write shared documents using the standard read/write/edit tools.
     msg += visionSet
       ? `\nProject vision/context set.`
       : `\n\nNext alignment step: /amux project vision set <vision>`;
-    msg += `\nThen: /amux new agent <name> --role <role>  or  /amux manage`;
+    msg += `\nThen: /amux new agent <name> --role <role>`;
     ctx.ui.notify(msg, "info");
   }
 
   async function handleNewAgent(args: string[], ctx: ExtensionContext): Promise<void> {
     const { positional, flags } = parseShortcutArgs(args);
 
-    const session = await resolveProjectForManage(ctx);
+    const session = await resolveProjectForCommand(ctx);
     if (!session) return;
 
     let name = positional[0];
@@ -2534,7 +2141,7 @@ Read and write shared documents using the standard read/write/edit tools.
     } else if (wsType === "current") {
       workspace = ctx.cwd;
     } else if (wsType === "worktree" && !config.mainRepo) {
-      ctx.ui.notify("No main repo configured. Use /amux manage > Projects to set one.", "warning");
+      ctx.ui.notify("No main repo configured. Use /amux new project --repo current to set one.", "warning");
     }
 
     // Create
@@ -2587,7 +2194,7 @@ Read and write shared documents using the standard read/write/edit tools.
   }
 
   async function handleNewRole(args: string[], ctx: ExtensionContext): Promise<void> {
-    const session = await resolveProjectForManage(ctx);
+    const session = await resolveProjectForCommand(ctx);
     if (!session) return;
 
     let name = args[0];
@@ -2647,7 +2254,7 @@ Read and write shared documents using the standard read/write/edit tools.
 
   async function handleProject(args: string[], ctx: ExtensionContext): Promise<void> {
     const sub = args[0] || "show";
-    if (sub === "vision" || sub === "context") {
+    if (sub === "vision") {
       return handleContext(args.slice(1), ctx);
     }
     return handleContext(args, ctx);
@@ -2667,7 +2274,7 @@ Read and write shared documents using the standard read/write/edit tools.
       case "show": {
         const content = readProjectContext(mySession);
         if (!content) {
-          ctx.ui.notify(`No project vision/context set.\n\nUse /amux project vision set <text>  or  /amux context set <text>`, "info");
+          ctx.ui.notify(`No project vision/context set.\n\nUse /amux project vision set <text>`, "info");
         } else {
           ctx.ui.notify(`Project vision/context (${contextPath}):\n\n${content}`, "info");
         }
@@ -2708,7 +2315,7 @@ Read and write shared documents using the standard read/write/edit tools.
       }
       default:
         ctx.ui.notify(
-          "Usage:\n  /amux project                         Show project vision/context\n  /amux project vision set <t>          Replace project vision/context\n  /amux project vision append <t>       Append to project vision/context\n  /amux project vision edit             Open editor\n  /amux project vision clear            Clear project vision/context\n  /amux project vision path             Show CONTEXT.md path\n\nLegacy alias:\n  /amux context [show|edit|set|append|clear|path]",
+          "Usage:\n  /amux project                         Show project vision/context\n  /amux project vision set <t>          Replace project vision/context\n  /amux project vision append <t>       Append to project vision/context\n  /amux project vision edit             Open editor\n  /amux project vision clear            Clear project vision/context\n  /amux project vision path             Show CONTEXT.md path",
           "info"
         );
     }

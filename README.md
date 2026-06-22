@@ -79,18 +79,16 @@ amux status [--session <name>]        # Agent availability
 amux --help                           # Show available commands
 ```
 
-Session is auto-detected if only one exists. The CLI uses shared core services and renderers. For full interactive workflows (create, assign, pick, manage), use the Pi extension.
+Session is auto-detected if only one exists. The CLI uses shared core services and renderers. For full interactive workflows (create, assign, pick), use the Pi extension.
 
 ## Quick Start (Pi)
 
 ```bash
 # Terminal 1: set up the project
 pi
-/amux manage          # → Projects > New → create project
-/amux project vision set "Build ..."  # first alignment artifact for agents
-                      # → Roles > New → define roles (or use built-ins)
-                      # → Agents > New → create agents with workspaces
-/amux join            # → select project → select your agent
+/amux new project myapp --repo current --vision "Build ..."
+/amux new agent Lead --role architect --workspace current --join
+/amux new agent Developer --role developer --workspace worktree
 
 # Terminal 2: another agent joins
 cd ~/myapp-agent1 && pi
@@ -106,12 +104,10 @@ All commands are subcommands of `/amux`:
 | `/amux` | Status and available commands |
 | `/amux join` | Join a project as an agent |
 | `/amux leave` | Leave project, return to solo mode |
-| `/amux manage` | Manage projects, agents, and roles (browse UI) |
 | `/amux progress` | Project progress overview |
 | `/amux show <ITEM-ID>` | Show backlog item details, comments, parent context, and spec preview |
 | `/amux new <type>` | Create project, agent, or role directly |
 | `/amux project` | Show/set project vision/context |
-| `/amux context` | Legacy alias for project context (CONTEXT.md) |
 | `/amux wow` | Show/set team Ways of Working (WOW.md) |
 | `/amux prompt` | Preview the amux coordination block appended to your system prompt (debug) |
 | `/amux status set` | Set your availability (idle/working/focus/away) |
@@ -136,12 +132,6 @@ Missing fields are prompted interactively. New project setup prompts for a proje
 /amux project vision edit             # Open editor to edit CONTEXT.md
 /amux project vision clear            # Clear project vision/context
 /amux project vision path             # Print CONTEXT.md file path
-```
-
-Legacy aliases remain available:
-
-```bash
-/amux context [show|edit|set|append|clear|path]
 ```
 
 Project vision/context is stored in `artifacts/project/CONTEXT.md` and auto-injected into agent prompts. Prefer `/amux project vision ...` or the `amux_project` tool over direct file edits.
@@ -236,15 +226,6 @@ Existing items without these fields behave as regular tasks. New item IDs use ty
 
 Availability is auto-updated by task lifecycle: `pick` → working, `done`/`drop` → idle (preserves explicit focus/away). Idle agents receive a single generic attention signal when new work is assigned; working/focus/away agents are not interrupted.
 
-### Manage
-
-```
-/amux manage
-  → Projects     new, rename, delete, set main repo
-  → Agents       new (with role + optional workspace), rename, delete
-  → Roles        new, delete
-```
-
 ## Tools (10)
 
 | Tool | Actions | Purpose |
@@ -299,7 +280,7 @@ amux_role({ action: "show", name: "lead-architect" })    # resolved role text
 amux_role({ action: "path", name: "lead-architect" })    # project-local profile file path
 ```
 
-Applying a team template copies the role markdown into `artifacts/project/roles/` and registers role definitions. It **does not create agents** — create those separately via `/amux manage` or `/amux new agent`. The copied markdown is the source of truth (`profilePath`); edit it to customize a role. Existing customized profiles are preserved unless `force` is used. Legacy roles with inline `instructions` continue to work unchanged.
+Applying a team template copies the role markdown into `artifacts/project/roles/` and registers role definitions. It **does not create agents** — create those separately via `/amux new agent`. The copied markdown is the source of truth (`profilePath`); edit it to customize a role. Existing customized profiles are preserved unless `force` is used.
 
 ## Lead Orchestration Workflow
 
@@ -339,7 +320,7 @@ amux teams learn from mistakes, successes, and user corrections through **curate
 
 | Artifact | Purpose | Changes how |
 |----------|---------|-------------|
-| `CONTEXT.md` | Project vision and strategy | Via `/amux context` or `amux_project` |
+| `CONTEXT.md` | Project vision and strategy | Via `/amux project vision` or `amux_project` |
 | `WOW.md` | Team collaboration norms | Via `/amux wow` or `amux_wow` |
 | role profiles | Per-role behavior | Via editing `roles/<name>.md` |
 | `journal.jsonl` | Curated lessons, decisions, proposals | Via `amux_journal add` |
@@ -360,10 +341,10 @@ Outputs are recorded as `amux_journal` learning entries. Norm-changing proposals
 Agents can work in isolated git worktrees:
 
 ```bash
-# Architect sets up (from /amux manage)
-Agents > New → name, role, workspace: "New worktree"
-  → creates ~/myapp-alice on branch agent/alice
-  (names are sanitized: "My Agent!" → agent/my-agent)
+# Create an agent with a dedicated worktree
+/amux new agent Alice --role developer --workspace worktree
+# → creates ~/myapp-alice on branch agent/alice
+# names are sanitized: "My Agent!" → agent/my-agent
 
 # Agent starts in their worktree
 cd ~/myapp-alice && pi

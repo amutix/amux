@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Removed
+
+- Removed `/amux context` and `/amux manage` command surfaces from the primary command model. Use `/amux project vision ...` and `/amux new ...` instead.
+
 ## 1.2.0 (2026-06-22)
 
 ### Added

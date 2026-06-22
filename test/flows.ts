@@ -1222,13 +1222,12 @@ describe("Task dependencies", () => {
     assert.deepStrictEqual(unmetDependencies(c, tasks), []);
   });
 
-  it("backward compat: existing tasks without dependsOn are valid", async () => {
-    // Add a task the old way (no dependsOn field)
-    const legacy = await addTask(session, {
-      title: "Legacy task", status: "todo", createdBy: "Test",
+  it("existing tasks without dependsOn are valid", async () => {
+    const existing = await addTask(session, {
+      title: "Existing task", status: "todo", createdBy: "Test",
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    const t = await getTask(session, legacy.id);
+    const t = await getTask(session, existing.id);
     assert.equal(t!.dependsOn, undefined);
     const tasks = await readBacklog(session);
     assert.deepStrictEqual(unmetDependencies(t!, tasks), []);
@@ -1275,16 +1274,16 @@ describe("Project context (CONTEXT.md)", () => {
 
   // Manual test steps for Pi command shortcuts:
   //
-  // /amux context:
+  // /amux project vision:
   //   1. /amux join → join a project
-  //   2. /amux context → shows "No project context set"
-  //   3. /amux context set "Build a REST API with auth" → "Project context set"
-  //   4. /amux context → shows the set context
-  //   5. /amux context append "Use PostgreSQL for storage" → "Appended"
-  //   6. /amux context → shows both lines
-  //   7. /amux context edit → opens editor with current content
-  //   8. /amux context path → prints file path
-  //   9. /amux context clear → confirms and clears
+  //   2. /amux project → shows "No project context set"
+  //   3. /amux project vision set "Build a REST API with auth" → "Project context set"
+  //   4. /amux project → shows the set context
+  //   5. /amux project vision append "Use PostgreSQL for storage" → "Appended"
+  //   6. /amux project → shows both lines
+  //   7. /amux project vision edit → opens editor with current content
+  //   8. /amux project vision path → prints file path
+  //   9. /amux project vision clear → confirms and clears
   //
   // /amux new:
   //   1. /amux new project testproj → creates project, asks about repo
@@ -2219,7 +2218,7 @@ describe("Message staleness metadata", () => {
     assert.equal(formatMessageAge(new Date(now + 1000).toISOString()), "just now");
   });
 
-  it("InboxMessage category and taskId are optional (backward compat)", () => {
+  it("InboxMessage category and taskId are optional", () => {
     const msg: InboxMessage = {
       id: "test", from: "a", fromName: "Alice", fromSession: "s",
       timestamp: new Date().toISOString(), message: "Hello",
@@ -2324,10 +2323,10 @@ describe("Role profiles and team templates", () => {
     assert.ok(resolved.includes("New instructions"), "Profile file edits should win");
   });
 
-  it("resolveRoleInstructions falls back to instructions for legacy roles", () => {
-    const legacy = { name: "legacy", instructions: "Legacy inline instructions." };
-    const resolved = resolveRoleInstructions(session, legacy);
-    assert.equal(resolved, "Legacy inline instructions.");
+  it("resolveRoleInstructions falls back to inline instructions", () => {
+    const inlineRole = { name: "inline", instructions: "Inline instructions." };
+    const resolved = resolveRoleInstructions(session, inlineRole);
+    assert.equal(resolved, "Inline instructions.");
   });
 });
 
@@ -2536,7 +2535,7 @@ describe("Ways of Working (WOW.md)", () => {
     assert.ok(wowIdx < ctxIdx, "project context must follow WoW");
   });
 
-  it("empty WoW section is skipped (backward compat)", () => {
+  it("empty WoW section is skipped", () => {
     const out = assembleAgentPrompt({
       commonPrinciples: "COMMON",
       waysOfWorking: "",

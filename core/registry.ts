@@ -47,7 +47,7 @@ export type Registry = Record<string, AgentInfo>; // keyed by UUID
 export interface RoleDefinition {
   name: string;
   description?: string; // short one-liner for display
-  instructions: string; // cached/legacy fallback prompt text
+  instructions: string; // inline fallback prompt text
   profilePath?: string; // project-local markdown path (source of truth when set)
   templateName?: string; // bundled source template name
 }
