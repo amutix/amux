@@ -263,6 +263,36 @@ amux_role({ action: "path", name: "lead-architect" })    # project-local profile
 
 Applying a team template copies the role markdown into `artifacts/project/roles/` and registers role definitions. It **does not create agents** — create those separately via `/amux manage` or `/amux new agent`. The copied markdown is the source of truth (`profilePath`); edit it to customize a role. Existing customized profiles are preserved unless `force` is used. Legacy roles with inline `instructions` continue to work unchanged.
 
+## Lead Orchestration Workflow
+
+amux is built for a lead agent (e.g. the `lead-architect` role) to turn high-level user goals into coordinated, reviewed delivery through a team of specialists. The recommended lead loop:
+
+1. **Clarify the goal** — outcomes, constraints, non-goals.
+2. **Confirm/update project vision** — `amux_project` (durable, prompt-injected context).
+3. **Create structure** — an initiative/milestone/spec for the work.
+4. **Decompose** — break into executable leaf tasks with `files` and `dependsOn`.
+5. **Delegate** — assign executable leaves to specialists (not container items); assign ready leaves up front and let `dependsOn` enforce order.
+6. **Monitor** — `amux_task summary` / `/amux progress`, reservations, review status.
+7. **Require review** — substantive work goes to `review` before `done`.
+8. **Integrate** — verify and merge the final changes.
+9. **Report** — give the user a clear outcome: what shipped, files/commits, tests, decisions, risks, next steps.
+
+This workflow is guidance, not magic automation — the lead agent orchestrates through the existing primitives (`amux_task`, `amux_project`, reservations, journal). There is no auto-decomposition action; decomposition is the lead's judgment and stays reviewable.
+
+### Prompt composition
+
+amux **appends** a composed coordination block to Pi's base system prompt (it never replaces it). The block is assembled in a deliberate, documented order (see `core/prompt-assembly.ts`):
+
+1. Common amux operating principles (collaboration contract)
+2. Project vision/context
+3. Role profile (role-specific only)
+4. Agent identity + workspace
+5. Current work state (active/assigned/review items, spec preview, recent comments)
+6. Team/backlog/reservation context
+7. Interface/tool guidance and shared artifact paths
+
+Role profiles supply only the role-specific section; common principles, vision, work state, and interface guidance are separate, deliberately-ordered sections.
+
 ## Workspaces
 
 Agents can work in isolated git worktrees:

@@ -62,6 +62,10 @@ import {
   roleProfileFullPath,
 } from "../core/roles";
 import {
+  assembleAgentPrompt,
+  COMMON_PRINCIPLES,
+} from "../core/prompt-assembly";
+import {
   ensureInbox,
   sendToInbox,
   getRecoverableMessages,
@@ -399,151 +403,129 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    let extra = "";
+    if (!myId) return;
 
-    // Inject role instructions
-    if (myRoleInstructions) {
-      extra += `\n\n## Your Role: ${myRoleName}\n${myRoleInstructions}`;
-    }
+    const backlog = await readBacklog(mySession);
 
-    // Inject workspace info
-    if (myId) {
+    // ── Section 2: Project vision/context ──
+    const projectCtx = readProjectContext(mySession);
+    const projectContext = projectCtx ? `## Project Context\n${projectCtx}` : "";
+
+    // ── Section 3: Role profile (role-specific only) ──
+    const roleProfile = myRoleInstructions ? `## Your Role: ${myRoleName}\n${myRoleInstructions}` : "";
+
+    // ── Section 4: Agent identity + workspace ──
+    let identity = `## Your Identity & Workspace\nYou are agent "${myName}" in session "${mySession}" (full address: ${myAddress()}).`;
+    if (myRoleName) identity += `\nRole: ${myRoleName}.`;
+    {
       const agent = await findById(mySession, myId);
       if (agent?.workspace) {
         const branchResult = await pi.exec("git", ["-C", agent.workspace, "branch", "--show-current"], { timeout: 5000 });
         const branch = branchResult.stdout?.trim() || "unknown";
-        extra += `\n\n## Your Workspace\nPath: ${agent.workspace}\nBranch: ${branch}\nUse this as your working directory for all file operations.`;
+        identity += `\nWorkspace: ${agent.workspace} (branch: ${branch}). Use this as your working directory for all file operations.`;
       }
     }
 
-    // Inject current task state (state-derived, never stale)
-    if (myId) {
-      const backlog = await readBacklog(mySession);
+    // ── Section 5: Current work state (active/review/assigned, spec, recent comments) ──
+    let workState = "";
+    {
       const inProgress = backlog.filter((t) => t.status === "in-progress" && t.assigneeId === myId);
       const review = backlog.filter((t) => t.status === "review" && t.assigneeId === myId);
       const assigned = backlog.filter((t) => t.status === "assigned" && t.assigneeId === myId);
 
       if (inProgress.length > 0) {
         const active = inProgress[0]!;
-        extra += `\n\n## Active Task\n${active.id}: ${active.title}`;
+        workState += `## Active Task\n${active.id}: ${active.title}`;
         if (active.parentId) {
           const parent = backlog.find((t) => t.id === active.parentId);
-          if (parent) extra += `\nParent: ${parent.id}: ${parent.title}`;
+          if (parent) workState += `\nParent: ${parent.id}: ${parent.title}`;
         }
-        if (active.files?.length) extra += `\nFiles: ${active.files.join(", ")}`;
+        if (active.files?.length) workState += `\nFiles: ${active.files.join(", ")}`;
         if (active.specPath) {
           const spec = readSpecPreview(mySession, active.specPath, 2000);
-          if (spec) extra += `\n\n${spec}`;
+          if (spec) workState += `\n\n${spec}`;
         }
         const comments = readTaskComments(mySession, active.id);
         if (comments.length > 0) {
           const recent = comments.slice(-3);
-          extra += `\nRecent activity:\n${recent.map((c) => `- ${formatTaskComment(c)}`).join("\n")}`;
+          workState += `\nRecent activity:\n${recent.map((c) => `- ${formatTaskComment(c)}`).join("\n")}`;
         }
       }
 
       if (review.length > 0) {
         const ids = review.map((t) => `${t.id}: ${t.title}`).join("\n  ");
-        extra += `\n\n## Ready for Review (${review.length})\n  ${ids}\n\nThese are implemented and waiting for review/integration. Use amux_task comment for review discussion.`;
+        workState += `${workState ? "\n\n" : ""}## Ready for Review (${review.length})\n  ${ids}\n\nThese are implemented and waiting for review/integration. Use amux_task comment for review discussion.`;
       }
 
       if (assigned.length > 0) {
         const ids = assigned.map((t) => `${t.id}: ${t.title}`).join("\n  ");
-        extra += `\n\n## Assigned Tasks (${assigned.length})\n  ${ids}\n\nUse amux_task show <id> for details, or amux_task pick <id> to start working.`;
+        workState += `${workState ? "\n\n" : ""}## Assigned Tasks (${assigned.length})\n  ${ids}\n\nUse amux_task show <id> for details, or amux_task pick <id> to start working.`;
       }
     }
 
-    // Inject project context (CONTEXT.md)
-    const projectCtx = readProjectContext(mySession);
-    if (projectCtx) {
-      extra += `\n\n## Project Context\n${projectCtx}`;
-    }
+    // ── Section 6: Team / journal context ──
+    let teamContext = "";
+    {
+      const registry = await readRegistry(mySession);
+      const projectAgents = Object.values(registry).filter((a) => a.id !== myId);
+      const allAgents = await readAllRegistries();
+      const crossSessionAgents = allAgents.filter(
+        (a) => a.session !== mySession && isEffectivelyOnline(a)
+      );
 
-    // Inject recent journal entries (sliding window)
-    const recentJournal = getRecentEntries(mySession);
-    if (recentJournal.length > 0) {
-      const journalLines = recentJournal.map((e) => `- ${formatJournalEntry(e)}`);
-      extra += `\n\n## Recent Journal\n${journalLines.join("\n")}`;
-    }
-
-    // Gather all agents in this project (online + offline)
-    const registry = await readRegistry(mySession);
-    const projectAgents = Object.values(registry).filter((a) => a.id !== myId);
-
-    // Cross-session agents (online only)
-    const allAgents = await readAllRegistries();
-    const crossSessionAgents = allAgents.filter(
-      (a) => a.session !== mySession && isEffectivelyOnline(a)
-    );
-
-    const hasOthers = projectAgents.length > 0 || crossSessionAgents.length > 0;
-
-    if (!hasOthers && !extra) return;
-
-    if (hasOthers) {
-      extra += `\n\n## Multi-Agent Environment (amux)`;
-      extra += `\nYou are agent "${myName}" in session "${mySession}" (full address: ${myAddress()}).`;
-      if (myRoleName) extra += `\nRole: ${myRoleName}.`;
-
-      if (projectAgents.length > 0) {
-        const backlog = await readBacklog(mySession);
-        const list = projectAgents
-          .map((a) => renderAgentPresence(a, backlog))
-          .join("\n");
-        extra += `\n\nSame-session agents (address as "${mySession}/<name>" or just "<name>"):\n${list}`;
-      }
-
-
-      if (crossSessionAgents.length > 0) {
-        const backlogBySession = new Map<string, BacklogItem[]>();
-        const lines: string[] = [];
-        for (const agent of crossSessionAgents) {
-          if (!backlogBySession.has(agent.session)) {
-            backlogBySession.set(agent.session, await readBacklog(agent.session));
-          }
-          lines.push(renderAgentPresence(agent, backlogBySession.get(agent.session)!, {
-            address: formatAddress(agent.session, agent.name),
-          }));
+      if (projectAgents.length > 0 || crossSessionAgents.length > 0) {
+        teamContext += `## Team`;
+        if (projectAgents.length > 0) {
+          const list = projectAgents.map((a) => renderAgentPresence(a, backlog)).join("\n");
+          teamContext += `\n\nSame-session agents (address as "${mySession}/<name>" or just "<name>"):\n${list}`;
         }
-        const list = lines.join("\n");
-        extra += `\nCross-session agents (must use full address "session/name"):\n${list}`;
+        if (crossSessionAgents.length > 0) {
+          const backlogBySession = new Map<string, BacklogItem[]>();
+          const lines: string[] = [];
+          for (const agent of crossSessionAgents) {
+            if (!backlogBySession.has(agent.session)) {
+              backlogBySession.set(agent.session, await readBacklog(agent.session));
+            }
+            lines.push(renderAgentPresence(agent, backlogBySession.get(agent.session)!, {
+              address: formatAddress(agent.session, agent.name),
+            }));
+          }
+          teamContext += `\nCross-session agents (must use full address "session/name"):\n${lines.join("\n")}`;
+        }
+        teamContext += `\n\n### Addressing\n- Same-session agents: use just the name (e.g., "backend") or full address ("${mySession}/backend")\n- Cross-session agents: always use the full address ("othersession/agentname")`;
       }
 
-      extra += `\n
-### Addressing
-- Same-session agents: use just the name (e.g., "backend") or full address ("${mySession}/backend")
-- Cross-session agents: always use the full address ("othersession/agentname")
-
-### Project setup and alignment
-- Use amux_project to set or update the project vision/context during setup; do not edit CONTEXT.md directly unless the interface is unavailable.
-- Project context is prompt-injected for future agents and should capture the goal, constraints, principles, and north star.
-
-### Communication
-- Use amux_task for task workflow: add, assign, pick, show, comment, review, done/drop/block, and summary.
-- Use amux_task comment for task-scoped discussion, like PR comments. Prefer comments over amux_send for task feedback.
-- Use amux_send only for exceptional general communication that is not tied to a backlog item.
-- Use amux_list to refresh the list of available agents (set allSessions=true for cross-session).
-- Messages from other agents appear as "[amux:session/agent (role) \u00b7 sent Xm ago] message".
-- When you receive a [amux:...] message, treat it as a request from a teammate and respond helpfully.
-- Reply using amux_send with the sender's address.
-
-### Backlog workflow
-- Use amux_task summary (or /amux progress) for a compact hierarchical overview before choosing work.
-- Backlog items may be typed: initiative, milestone, task, bug, chore, or spec. IDs reflect type (INIT-*, MS-*, TASK-*, BUG-*, CHORE-*, SPEC-*).
-- High-level items such as initiatives and milestones are context containers. Prefer assigning executable leaf items (task/bug/chore/spec), not container items.
-- When creating a high-level item with children, first create and review the overall structure and context. Assign/delegate child work only after the parent item is sufficiently defined.
-- When working on a child item, inspect its parent context with amux_task show before picking or implementing.
-- Task assignment is state-derived: assigned work appears in backlog/progress and prompt context; task details are not sent as inbox messages.`;
+      const recentJournal = getRecentEntries(mySession);
+      if (recentJournal.length > 0) {
+        const journalLines = recentJournal.map((e) => `- ${formatJournalEntry(e)}`);
+        teamContext += `${teamContext ? "\n\n" : ""}## Recent Journal\n${journalLines.join("\n")}`;
+      }
     }
 
-    // Artifact paths  -- always include when agent has identity
-    if (myId) {
-      extra += `\n\n### Shared Artifacts\nRead and write shared documents using the standard read/write/edit tools.`;
-      extra += `\n- Project (all agents): ${projectArtifactsDir()}`;
-      extra += `\n- Private (you only): ${agentArtifactsDir(myId)}`;
-    }
+    // ── Section 7: Interface/tool guidance + shared artifact paths ──
+    const interfaceGuidance = `## Interfaces & Artifacts
+- Messages from other agents appear as "[amux:session/agent (role) \u00b7 sent Xm ago] message". Treat them as teammate requests; reply with amux_send to the sender.
+- Use amux_project to set or update project vision/context; do not edit CONTEXT.md directly unless the interface is unavailable.
+- Task details are state-derived: assigned work appears in your work state and backlog, not as inbox messages.
 
-    return { systemPrompt: event.systemPrompt + extra };
+### Shared Artifacts
+Read and write shared documents using the standard read/write/edit tools.
+- Project (all agents): ${projectArtifactsDir()}
+- Private (you only): ${agentArtifactsDir(myId)}`;
+
+    // Compose the coordination block in deliberate order and APPEND to the base prompt
+    const assembled = assembleAgentPrompt({
+      commonPrinciples: COMMON_PRINCIPLES,
+      projectContext,
+      roleProfile,
+      identity,
+      workState,
+      teamContext,
+      interfaceGuidance,
+    });
+
+    if (!assembled) return;
+    return { systemPrompt: event.systemPrompt + "\n\n" + assembled };
   });
 
   // -- Tools ----------------------------------------------------

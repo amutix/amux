@@ -51,6 +51,10 @@ import {
   roleProfileFullPath,
   roleProfileRelPath,
 } from "../core/roles.ts";
+import {
+  assembleAgentPrompt,
+  COMMON_PRINCIPLES,
+} from "../core/prompt-assembly.ts";
 
 import {
   ensureInbox,
@@ -2311,5 +2315,58 @@ describe("Role profiles and team templates", () => {
     const legacy = { name: "legacy", instructions: "Legacy inline instructions." };
     const resolved = resolveRoleInstructions(session, legacy);
     assert.equal(resolved, "Legacy inline instructions.");
+  });
+});
+
+describe("Prompt assembly", () => {
+  it("composes sections in the deliberate order", () => {
+    const out = assembleAgentPrompt({
+      commonPrinciples: "COMMON",
+      projectContext: "CONTEXT",
+      roleProfile: "ROLE",
+      identity: "IDENTITY",
+      workState: "WORK",
+      teamContext: "TEAM",
+      interfaceGuidance: "INTERFACE",
+    });
+    const order = ["COMMON", "CONTEXT", "ROLE", "IDENTITY", "WORK", "TEAM", "INTERFACE"];
+    // Each section appears, and in the right relative order
+    let lastIdx = -1;
+    for (const section of order) {
+      const idx = out.indexOf(section);
+      assert.ok(idx > lastIdx, `${section} should follow the previous section`);
+      lastIdx = idx;
+    }
+  });
+
+  it("skips empty and whitespace-only sections", () => {
+    const out = assembleAgentPrompt({
+      commonPrinciples: "COMMON",
+      projectContext: "",
+      roleProfile: "   ",
+      identity: "IDENTITY",
+    });
+    assert.ok(out.includes("COMMON"));
+    assert.ok(out.includes("IDENTITY"));
+    // No empty-section artifacts (no triple newlines from skipped sections)
+    assert.ok(!out.includes("\n\n\n"));
+    assert.equal(out, "COMMON\n\nIDENTITY");
+  });
+
+  it("returns empty string when all sections are empty", () => {
+    assert.equal(assembleAgentPrompt({}), "");
+    assert.equal(assembleAgentPrompt({ roleProfile: "", workState: "  " }), "");
+  });
+
+  it("joins sections with blank-line separators", () => {
+    const out = assembleAgentPrompt({ commonPrinciples: "A", roleProfile: "B" });
+    assert.equal(out, "A\n\nB");
+  });
+
+  it("COMMON_PRINCIPLES contains the collaboration contract", () => {
+    assert.ok(COMMON_PRINCIPLES.includes("State is the source of truth"));
+    assert.ok(COMMON_PRINCIPLES.includes("amux_task comment"));
+    assert.ok(COMMON_PRINCIPLES.includes("executable leaf"));
+    assert.ok(COMMON_PRINCIPLES.includes("Review before done"));
   });
 });
