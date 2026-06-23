@@ -75,6 +75,15 @@ import {
   type PromptContextAgent,
 } from "../core/prompt-context.ts";
 import {
+  allAmuxTools,
+  getAmuxTool,
+  artifactsTool,
+  listTool,
+  objectSchema,
+  optionalBoolProp,
+  type AmuxToolContext,
+} from "../core/tools/index.ts";
+import {
   startDiscussion,
   postToDiscussion,
   closeDiscussion,
@@ -2687,6 +2696,105 @@ describe("Prompt context gatherer", () => {
 
     const noCallback = await gatherAgentPromptSections(agent);
     assert.ok(noCallback.identity.includes("branch: unknown"));
+  });
+});
+
+describe("Neutral tool registry (SPEC-18)", () => {
+  it("allAmuxTools lists the pilot tools and registry lookups resolve", () => {
+    const tools = allAmuxTools();
+    const names = tools.map((t) => t.name);
+    assert.ok(names.includes("amux_artifacts"));
+    assert.ok(names.includes("amux_list"));
+    assert.equal(getAmuxTool("amux_list")!.name, "amux_list");
+    assert.equal(getAmuxTool("nonexistent"), undefined);
+  });
+
+  it("neutral schema descriptors produce plain JSON Schema shapes", () => {
+    const schema = objectSchema(
+      { flag: optionalBoolProp("a flag"), name: { type: "string" } },
+      ["name"],
+    );
+    assert.equal(schema.type, "object");
+    assert.deepEqual(schema.required, ["name"]);
+    assert.equal(schema.properties.flag.type, "boolean");
+    assert.equal(schema.properties.flag.description, "a flag");
+    assert.ok(!("flag" in Object.fromEntries([["flag", true]]) && false));
+    // required-list membership is what marks optionality, not a property flag
+    assert.ok(!schema.required.includes("flag"));
+  });
+
+  it("pilot tools carry stable metadata (name/label/description/schema)", () => {
+    assert.equal(artifactsTool.name, "amux_artifacts");
+    assert.equal(artifactsTool.label, "List Artifacts");
+    assert.deepEqual(artifactsTool.inputSchema, { type: "object", properties: {}, required: [] });
+
+    assert.equal(listTool.name, "amux_list");
+    assert.equal(listTool.label, "List Agents");
+    assert.deepEqual(listTool.inputSchema.required, []);
+    assert.equal(listTool.inputSchema.properties.allSessions.type, "boolean");
+    assert.ok(listTool.description.includes("allSessions=true"));
+  });
+});
+
+describe("Neutral tool handlers (SPEC-18 pilot)", () => {
+  const session = testSession("neutraltools");
+  const agentId = newAgentId();
+  const ctx: AmuxToolContext = {
+    session,
+    agentId,
+    agentName: "NeutralAgent",
+    roleName: "developer",
+  };
+
+  before(async () => {
+    // Two online agents so amux_list has something to render.
+    await registerAgent(session, {
+      id: agentId,
+      name: "NeutralAgent",
+      session,
+      role: "developer",
+      roleName: "developer",
+      cwd: "/tmp",
+      pid: 0,
+      status: "online",
+      registeredAt: new Date().toISOString(),
+      lastHeartbeat: new Date().toISOString(),
+    });
+    await registerAgent(session, {
+      id: newAgentId(),
+      name: "Teammate",
+      session,
+      role: "reviewer",
+      roleName: "reviewer",
+      cwd: "/tmp",
+      pid: 0,
+      status: "online",
+      registeredAt: new Date().toISOString(),
+      lastHeartbeat: new Date().toISOString(),
+    });
+  });
+  after(() => cleanupSession(session));
+
+  it("amux_artifacts lists project and private artifact dirs (empty when none)", async () => {
+    const result = await artifactsTool.execute(ctx, {});
+    assert.ok(result.text.includes("Project ("));
+    assert.ok(result.text.includes("Private ("));
+    assert.ok(result.text.includes("(empty)"));
+  });
+
+  it("amux_list renders online same-session agents grouped by session", async () => {
+    const result = await listTool.execute(ctx, {});
+    assert.ok(result.text.includes("Session: "));
+    assert.ok(result.text.includes("(current)"));
+    assert.ok(result.text.includes("NeutralAgent") || result.text.includes("Teammate"));
+    assert.deepEqual((result.details as { agents: unknown[] }).agents.length, 2);
+  });
+
+  it("amux_list reports no agents online when none are registered (other session)", async () => {
+    const emptyCtx: AmuxToolContext = { ...ctx, session: testSession("neutraltools-empty") };
+    const result = await listTool.execute(emptyCtx, {});
+    assert.equal(result.text, "No agents online.");
+    assert.deepEqual((result.details as { agents: unknown[] }).agents, []);
   });
 });
 

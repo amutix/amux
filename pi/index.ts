@@ -16,7 +16,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { FSWatcher } from "node:fs";
-import { mkdirSync, readdirSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import {
   getSessionsDir,
   sessionDir,
@@ -74,6 +74,8 @@ import {
   gatherAgentPromptSections,
   type PromptContextAgent,
 } from "../core/prompt-context";
+import { allAmuxTools } from "../core/tools/index.ts";
+import { registerAmuxTools, buildAmuxToolContext } from "./tool-adapter.ts";
 import {
   ensureInbox,
   sendToInbox,
@@ -493,6 +495,20 @@ export default function (pi: ExtensionAPI) {
 
   // -- Tools ----------------------------------------------------
 
+  // Neutral tool registry: schema/result bridging and registration live in
+  // pi/tool-adapter.ts; tool product logic is framework-neutral in core/tools.
+  // (amux_artifacts + amux_list are migrated; other tools remain inline pending
+  // SPEC-18 slices 2-5.)
+  registerAmuxTools(pi, allAmuxTools(), () =>
+    buildAmuxToolContext({
+      session: mySession!,
+      agentId: myId!,
+      agentName: myName!,
+      roleName: myRoleName,
+      exec: pi.exec,
+    }),
+  );
+
   // - amux_role -------------------------------------------------
 
   pi.registerTool({
@@ -642,65 +658,11 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // - amux_list -------------------------------------------------
+  // - amux_list + amux_artifacts (neutral registry) --------------------
 
-  pi.registerTool({
-    name: "amux_list",
-    label: "List Agents",
-    description:
-      "List online amux agents with their session, name, role, and status. " +
-      "Set allSessions=true to include agents from other sessions.",
-    promptSnippet: "List online amux agents and their roles/status (supports cross-session discovery)",
-    parameters: Type.Object({
-      allSessions: Type.Optional(
-        Type.Boolean({ description: "If true, list agents from all sessions. Default: false." })
-      ),
-    }),
-
-    async execute(_id, params) {
-      if (!mySession) throw new Error("amux session not active");
-
-      let agents: AgentInfo[];
-      if (params.allSessions) {
-        agents = (await readAllRegistries()).filter(isEffectivelyOnline);
-      } else {
-        agents = await getOnlineAgents(mySession);
-      }
-
-      if (agents.length === 0) {
-        return { content: [{ type: "text", text: "No agents online." }], details: { agents: [] } };
-      }
-
-      // Group by session
-      const bySession = new Map<string, AgentInfo[]>();
-      for (const a of agents) {
-        const sess = a.session || mySession;
-        if (!bySession.has(sess)) bySession.set(sess, []);
-        bySession.get(sess)!.push(a);
-      }
-
-      const sections: string[] = [];
-      const backlogBySession = new Map<string, BacklogItem[]>();
-      for (const [session, sessionAgents] of bySession) {
-        const isCurrent = session === mySession;
-        const header = isCurrent ? `Session: ${session} (current)` : `Session: ${session}`;
-        if (!backlogBySession.has(session)) {
-          backlogBySession.set(session, await readBacklog(session));
-        }
-        const backlog = backlogBySession.get(session)!;
-        const lines = sessionAgents.map((a) =>
-          renderAgentPresence(a, backlog, {
-            currentAgentId: myId,
-            address: formatAddress(session, a.name),
-            includeCwd: true,
-          })
-        );
-        sections.push(`${header}\n${lines.join("\n")}`);
-      }
-
-      return { content: [{ type: "text", text: sections.join("\n\n") }], details: { agents } };
-    },
-  });
+  // Registered via the neutral tool registry bridge (pi/tool-adapter.ts).
+  // See allAmuxTools() in core/tools. Schema/result bridging lives there;
+  // tool product logic is framework-neutral in core/tools/*.
 
   // - amux_send -------------------------------------------------
 
@@ -850,42 +812,6 @@ export default function (pi: ExtensionAPI) {
       if (errors.length > 0) text += `\nFailed: ${errors.join("; ")}`;
 
       return { content: [{ type: "text", text }], details: { recipients, errors } };
-    },
-  });
-
-  // - amux_artifacts --------------------------------------------
-
-  pi.registerTool({
-    name: "amux_artifacts",
-    label: "List Artifacts",
-    description:
-      "List shared documents at project and agent levels. " +
-      "Use read/write/edit tools to work with the files directly.",
-    promptSnippet: "List shared artifacts at project or agent level",
-    parameters: Type.Object({}),
-
-    async execute() {
-      if (!mySession || !myId) {
-        throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
-      }
-
-      const sections: string[] = [];
-
-      // Project level
-      const projDir = projectArtifactsDir();
-      const projFiles = listFiles(projDir);
-      sections.push(`Project (${projDir}):\n` +
-        (projFiles.length > 0 ? projFiles.map((f) => `  - ${f}`).join("\n") : "  (empty)"));
-
-      // Agent level
-      const aDir = agentArtifactsDir(myId);
-      const aFiles = listFiles(aDir);
-      sections.push(`Private (${aDir}):\n` +
-        (aFiles.length > 0 ? aFiles.map((f) => `  - ${f}`).join("\n") : "  (empty)"));
-
-      return {
-        content: [{ type: "text", text: sections.join("\n\n") }],
-      };
     },
   });
 
@@ -2646,13 +2572,7 @@ ${content}`, "info");
     mkdirSync(agentArtifactsDir(myId), { recursive: true });
   }
 
-  function listFiles(dir: string): string[] {
-    try {
-      return readdirSync(dir).filter((f) => !f.startsWith("."));
-    } catch {
-      return [];
-    }
-  }
+  // listFiles moved to core/tools/pilot-tools.ts (neutral amux_artifacts)
 
   async function trySetModel(ctx: ExtensionContext, modelStr: string): Promise<void> {
     let found = false;
