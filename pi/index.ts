@@ -2676,10 +2676,12 @@ Read and write shared documents using the standard read/write/edit tools.
   type ArtifactOps = {
     /** Human-readable label for messages (e.g. "project vision/context"). */
     label: string;
-    /** Short name for help text and commands (e.g. "project"). */
-    name: string;
-    /** Read the artifact, returning null if it does not exist. */
+    /** Command path for help text (e.g. "project vision"). */
+    command: string;
+    /** Read the artifact preview, returning null if it does not exist. */
     read(): string | null;
+    /** Read the full artifact for editing, returning null if it does not exist. */
+    readFull(): string | null;
     /** Write content and return the full path. */
     write(content: string): string;
     /** Append content and return the full path. */
@@ -2709,7 +2711,7 @@ Read and write shared documents using the standard read/write/edit tools.
         if (!content) {
           ctx.ui.notify(`No ${ops.label} set.
 
-Use /amux ${ops.name} set <text>`, "info");
+Use /amux ${ops.command} set <text>`, "info");
         } else {
           ctx.ui.notify(`${ops.label.charAt(0).toUpperCase() + ops.label.slice(1)} (${p}):
 
@@ -2718,7 +2720,7 @@ ${content}`, "info");
         break;
       }
       case "edit": {
-        const current = ops.read() ?? "";
+        const current = ops.readFull() ?? "";
         const result = await ctx.ui.editor(`Edit ${ops.label}:`, current);
         if (result === null || result === undefined) { ctx.ui.notify("Cancelled.", "info"); return; }
         ops.write(result);
@@ -2727,14 +2729,14 @@ ${content}`, "info");
       }
       case "set": {
         const text = args.slice(1).join(" ").trim();
-        if (!text) { ctx.ui.notify(`Usage: /amux ${ops.name} set <text>`, "warning"); return; }
+        if (!text) { ctx.ui.notify(`Usage: /amux ${ops.command} set <text>`, "warning"); return; }
         ops.write(text);
         ctx.ui.notify(`${ops.label.charAt(0).toUpperCase() + ops.label.slice(1)} set. Changes affect future agent prompts.`, "info");
         break;
       }
       case "append": {
         const text = args.slice(1).join(" ").trim();
-        if (!text) { ctx.ui.notify(`Usage: /amux ${ops.name} append <text>`, "warning"); return; }
+        if (!text) { ctx.ui.notify(`Usage: /amux ${ops.command} append <text>`, "warning"); return; }
         ops.append(text);
         ctx.ui.notify(`Appended to ${ops.label}. Changes affect future agent prompts.`, "info");
         break;
@@ -2753,12 +2755,12 @@ ${content}`, "info");
       default:
         ctx.ui.notify(
           `Usage:
-  /amux ${ops.name}                         Show current ${ops.label}
-  /amux ${ops.name} set <t>          Replace ${ops.label}
-  /amux ${ops.name} append <t>       Append to ${ops.label}
-  /amux ${ops.name} edit             Open editor
-  /amux ${ops.name} clear            Clear ${ops.label}
-  /amux ${ops.name} path             Show path`,
+  /amux ${ops.command}                         Show current ${ops.label}
+  /amux ${ops.command} set <t>          Replace ${ops.label}
+  /amux ${ops.command} append <t>       Append to ${ops.label}
+  /amux ${ops.command} edit             Open editor
+  /amux ${ops.command} clear            Clear ${ops.label}
+  /amux ${ops.command} path             Show path`,
           "info"
         );
     }
@@ -2766,8 +2768,9 @@ ${content}`, "info");
   async function handleContext(args: string[], ctx: ExtensionContext): Promise<void> {
     return handleManagedArtifact(args, ctx, {
       label: "project vision/context",
-      name: "project",
+      command: "project vision",
       read: () => readProjectContext(mySession),
+      readFull: () => readProjectContext(mySession, 0),
       write: (c) => { writeProjectContext(mySession, c); return projectContextPath(mySession); },
       append: (c) => { appendProjectContext(mySession, c); return projectContextPath(mySession); },
       clear: () => clearProjectContext(mySession),
@@ -2782,8 +2785,9 @@ ${content}`, "info");
   async function handleWow(args: string[], ctx: ExtensionContext): Promise<void> {
     return handleManagedArtifact(args, ctx, {
       label: "Ways of Working",
-      name: "wow",
+      command: "wow",
       read: () => readWaysOfWorking(mySession),
+      readFull: () => readWaysOfWorking(mySession, 0),
       write: (c) => { writeWaysOfWorking(mySession, c); return wowPath(mySession); },
       append: (c) => { appendWaysOfWorking(mySession, c); return wowPath(mySession); },
       clear: () => { clearWaysOfWorking(mySession); return wowPath(mySession); },
