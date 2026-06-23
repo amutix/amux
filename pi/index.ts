@@ -71,6 +71,10 @@ import {
   type PromptSections,
 } from "../core/prompt-assembly";
 import {
+  gatherAgentPromptSections,
+  type PromptContextAgent,
+} from "../core/prompt-context";
+import {
   ensureInbox,
   sendToInbox,
   getRecoverableMessages,
@@ -121,8 +125,6 @@ import {
   formatTaskComment,
   resolveTaskCommentSubscribers,
   taskCommentPreview,
-  substantiveTaskComments,
-  latestSubstantiveTaskComment,
   type TaskComment,
 } from "../core/task-comments";
 import {
@@ -150,7 +152,6 @@ import {
   closeDiscussion,
   readDiscussion,
   listDiscussions,
-  openDiscussionSummaries,
   renderDiscussion,
   renderDiscussionList,
   resolveDiscussionParticipants,
@@ -464,208 +465,31 @@ export default function (pi: ExtensionAPI) {
     return { systemPrompt: event.systemPrompt + "\n\n" + assembled };
   });
 
-  function formatTaskDiscussionPromptSummary(taskId: string, comments: TaskComment[]): string {
-    const substantive = substantiveTaskComments(comments);
-    const latest = latestSubstantiveTaskComment(comments);
-    if (!latest) return "";
-    const count = substantive.length;
-    const preview = taskCommentPreview(latest.text, 180);
-    const plural = count === 1 ? "comment" : "comments";
-    return `Recent task discussion: ${count} ${plural}; latest from ${latest.agent} ${formatMessageAge(latest.timestamp)}: "${preview}"\nUse amux_task show ${taskId} for the full thread.`;
-  }
-
   /**
-   * Gather all amux coordination sections for the joined agent, in the
-   * deliberate order. This is the SINGLE gathering path used by both the
-   * before_agent_start hook (where this adapter appends the assembled block
-   * to the host runtime's base prompt) and the `/amux prompt` debug/preview command -- so the
-   * injected prompt and the previewed prompt can never drift.
+   * Gather all amux coordination sections for the joined agent. Thin adapter
+   * wrapper over the core gatherer: it supplies the current agent's
+   * identity/role/address and the only host-execution concern (resolving the
+   * git branch of the agent worktree). The product logic lives in
+   * core/prompt-context.ts so the injected prompt and the `/amux prompt`
+   * preview -- which share this single path -- can never drift.
    *
    * Caller must ensure the agent has joined (mySession/myId/myName set).
    */
   async function gatherPromptSections(): Promise<PromptSections> {
-    const session = mySession!, id = myId!, name = myName!;
-    const backlog = await readBacklog(session);
-
-    // ── Section 2: Ways of Working (extends common principles) ──
-    const wowContent = readWaysOfWorking(session);
-    const waysOfWorking = wowContent ? `## Ways of Working\n${wowContent}` : "";
-
-    // ── Section 3: Project vision/context ──
-    const projectCtx = readProjectContext(session);
-    const projectContext = projectCtx ? `## Project Context\n${projectCtx}` : "";
-
-    // ── Section 3: Role profile (role-specific only) ──
-    const roleProfile = myRoleInstructions ? `## Your Role: ${myRoleName}\n${myRoleInstructions}` : "";
-
-    // ── Section 4: Agent identity + workspace ──
-    let identity = `## Your Identity & Workspace\nYou are agent "${name}" in session "${session}" (full address: ${myAddress()}).`;
-    if (myRoleName) identity += `\nRole: ${myRoleName}.`;
-    {
-      const agent = await findById(session, id);
-      if (agent?.workspace) {
-        const branchResult = await pi.exec("git", ["-C", agent.workspace, "branch", "--show-current"], { timeout: 5000 });
-        const branch = branchResult.stdout?.trim() || "unknown";
-        identity += `\nWorkspace: ${agent.workspace} (branch: ${branch}). Use this as your working directory for all file operations.`;
-      }
-    }
-
-    // ── Section 5: Current work state (active/review/assigned, spec, recent comments) ──
-    let workState = "";
-    {
-      const inProgress = backlog.filter((t) => t.status === "in-progress" && t.assigneeId === id);
-      const review = backlog.filter((t) => t.status === "review" && t.assigneeId === id);
-      const assigned = backlog.filter((t) => t.status === "assigned" && t.assigneeId === id);
-
-      if (inProgress.length > 0) {
-        const active = inProgress[0]!;
-        workState += `## Active Task\n${active.id}: ${active.title}`;
-        if (active.parentId) {
-          const parent = backlog.find((t) => t.id === active.parentId);
-          if (parent) workState += `\nParent: ${parent.id}: ${parent.title}`;
-        }
-        if (active.files?.length) workState += `\nFiles: ${active.files.join(", ")}`;
-        if (active.specPath) {
-          const spec = readSpecPreview(session, active.specPath, 2000);
-          if (spec) workState += `\n\n${spec}`;
-        }
-        const comments = readTaskComments(session, active.id);
-        const commentSummary = formatTaskDiscussionPromptSummary(active.id, comments);
-        if (commentSummary) workState += `\n\n${commentSummary}`;
-      }
-
-      if (review.length > 0) {
-        const ids = review.map((t) => `${t.id}: ${t.title}`).join("\n  ");
-        const reviewSummaries = review
-          .map((t) => formatTaskDiscussionPromptSummary(t.id, readTaskComments(session, t.id)))
-          .filter((summary) => summary.length > 0)
-          .map((summary) => `  - ${summary.replace(/\n/g, "\n    ")}`);
-        workState += `${workState ? "\n\n" : ""}## Ready for Review (${review.length})\n  ${ids}\n\nThese are implemented and waiting for review/integration. Use amux_task show for full context and amux_task comment for review discussion.`;
-        if (reviewSummaries.length > 0) {
-          workState += `\n\nLatest review discussion preview:\n${reviewSummaries.join("\n")}`;
-        }
-      }
-
-      if (assigned.length > 0) {
-        const ids = assigned.map((t) => `${t.id}: ${t.title}`).join("\n  ");
-        workState += `${workState ? "\n\n" : ""}## Assigned Tasks (${assigned.length})\n  ${ids}\n\nUse amux_task show <id> for details, or amux_task pick <id> to start working.`;
-      }
-
-      const pendingReplies = await readPendingReplies(session, id);
-      if (pendingReplies.length > 0) {
-        const lines = pendingReplies.slice(0, 5).map((p) => {
-          const task = p.taskId ? ` ${p.taskId}` : "";
-          return `- ${p.id}${task} to ${formatAddress(p.toSession, p.toName)} (${formatMessageAge(p.createdAt)}): ${p.messagePreview}`;
-        });
-        workState += `${workState ? "\n\n" : ""}## Pending Replies (${pendingReplies.length})\n${lines.join("\n")}\n\nThese direct messages requested a response. Follow up or mark them answered by replying with amux_send inReplyTo.`;
-      }
-    }
-
-    // ── Section 6: Team / project snapshot / journal context ──
-    let teamContext = "";
-    {
-      const registry = await readRegistry(session);
-      const projectAgents = Object.values(registry).filter((a) => a.id !== id);
-      const allAgents = await readAllRegistries();
-      const crossSessionAgents = allAgents.filter(
-        (a) => a.session !== session && isEffectivelyOnline(a)
-      );
-
-      if (projectAgents.length > 0 || crossSessionAgents.length > 0) {
-        teamContext += `## Team`;
-        if (projectAgents.length > 0) {
-          const list = projectAgents.map((a) => renderAgentPresence(a, backlog)).join("\n");
-          teamContext += `\n\nSame-session agents (address as "${session}/<name>" or just "<name>"):\n${list}`;
-        }
-        if (crossSessionAgents.length > 0) {
-          const backlogBySession = new Map<string, BacklogItem[]>();
-          const lines: string[] = [];
-          for (const agent of crossSessionAgents) {
-            if (!backlogBySession.has(agent.session)) {
-              backlogBySession.set(agent.session, await readBacklog(agent.session));
-            }
-            lines.push(renderAgentPresence(agent, backlogBySession.get(agent.session)!, {
-              address: formatAddress(agent.session, agent.name),
-            }));
-          }
-          teamContext += `\nCross-session agents (must use full address "session/name"):\n${lines.join("\n")}`;
-        }
-        teamContext += `\n\n### Addressing\n- Same-session agents: use just the name (e.g., "backend") or full address ("${session}/backend")\n- Cross-session agents: always use the full address ("othersession/agentname")`;
-      }
-
-      const activeStatuses = ["todo", "assigned", "in-progress", "review", "blocked"];
-      const counts = new Map(activeStatuses.map((status) => [status, 0]));
-      for (const item of backlog) {
-        if (counts.has(item.status)) counts.set(item.status, (counts.get(item.status) || 0) + 1);
-      }
-      const openCount = activeStatuses.reduce((sum, status) => sum + (counts.get(status) || 0), 0);
-      const ready = backlog.filter((t) => t.status === "review").slice(0, 3);
-      const blocked = backlog.filter((t) => t.status === "blocked").slice(0, 3);
-      const reservations = await getReservations(session);
-      const reservationLines = Object.entries(reservations).slice(0, 5).map(([path, r]) => {
-        const reason = r.reason ? ` (${r.reason.length > 70 ? `${r.reason.slice(0, 67)}…` : r.reason})` : "";
-        return `- ${path}: ${r.agent}, ${formatReservationAge(r.since)}${reason}`;
-      });
-
-      if (openCount > 0 || reservationLines.length > 0) {
-        const countStr = activeStatuses
-          .map((status) => `${status} ${counts.get(status) || 0}`)
-          .join(", ");
-        let snapshot = `## Project Snapshot\nOpen work: ${openCount} (${countStr})`;
-        if (ready.length > 0) {
-          snapshot += `\nReady for review: ${ready.map((t) => `${t.id}: ${t.title}${t.assignee ? ` — ${t.assignee}` : ""}`).join("; ")}`;
-        }
-        if (blocked.length > 0) {
-          snapshot += `\nBlocked: ${blocked.map((t) => `${t.id}: ${t.title}${t.blockedReason ? ` (${t.blockedReason})` : ""}`).join("; ")}`;
-        }
-        if (reservationLines.length > 0) {
-          snapshot += `\nActive reservations:\n${reservationLines.join("\n")}`;
-        }
-        teamContext += `${teamContext ? "\n\n" : ""}${snapshot}`;
-      }
-
-      const recentJournal = getRecentEntries(session);
-      if (recentJournal.length > 0) {
-        const journalLines = recentJournal.map((e) => `- ${formatJournalEntry(e)}`);
-        teamContext += `${teamContext ? "\n\n" : ""}## Recent Journal\n${journalLines.join("\n")}`;
-      }
-    }
-
-    // ── Section 7: Interface/tool guidance + shared artifact paths ──
-    const interfaceGuidance = `## Interfaces & Artifacts
-- Messages from other agents appear as "[amux:session/agent (role) \u00b7 sent Xm ago] message". Treat them as teammate requests; reply with amux_send to the sender.
-- Use amux_project to set or update project vision/context; do not edit CONTEXT.md directly unless the interface is unavailable.
-- Task details are state-derived: assigned work appears in your work state and backlog, not as inbox messages.
-
-### Shared Artifacts
-Read and write shared documents using the standard read/write/edit tools.
-- Project (all agents): ${projectArtifactsDir()}
-- Private (you only): ${agentArtifactsDir(id)}`;
-
-    // ── Compact open-discussions metadata ──
-    let openDiscussions = "";
-    {
-      const open = openDiscussionSummaries(session);
-      if (open.length > 0) {
-        openDiscussions = `## Open Discussions (${open.length})\n${open.slice(0, 5).map((d) => {
-          const last = formatMessageAge(d.lastActivityAt);
-          const participants = d.participantNames.join(", ") || "(none)";
-          return `- ${d.id} ${d.kind}: ${d.topic} — audience: ${d.audience}, ${d.postCount} post${d.postCount !== 1 ? "s" : ""}, last ${last}, participants: ${participants}`;
-        }).join("\n")}`;
-      }
-    }
-
-    return {
-      commonPrinciples: COMMON_PRINCIPLES,
-      waysOfWorking,
-      projectContext,
-      roleProfile,
-      identity,
-      workState,
-      teamContext,
-      interfaceGuidance,
-      openDiscussions,
+    const agent: PromptContextAgent = {
+      session: mySession!,
+      id: myId!,
+      name: myName!,
+      roleName: myRoleName,
+      roleInstructions: myRoleInstructions,
+      address: myAddress(),
     };
+    return gatherAgentPromptSections(agent, {
+      getWorkspaceBranch: async (workspace) => {
+        const r = await pi.exec("git", ["-C", workspace, "branch", "--show-current"], { timeout: 5000 });
+        return r.stdout?.trim() || "unknown";
+      },
+    });
   }
 
   // -- Tools ----------------------------------------------------

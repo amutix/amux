@@ -18,6 +18,7 @@ export * from "./renderers";
 export * from "./task-service";
 export * from "./roles";
 export * from "./prompt-assembly";
+export * from "./prompt-context";
 export * from "./ways-of-working";
 export * from "./discussions";
 

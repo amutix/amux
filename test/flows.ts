@@ -7,7 +7,7 @@
  * Run: node --test test/flows.ts
  */
 
-import { describe, it, after } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { rmSync, existsSync, mkdtempSync, mkdirSync as mkDir, writeFileSync, readFileSync as readF } from "node:fs";
 import { join } from "node:path";
@@ -70,6 +70,10 @@ import {
   skippedSectionNames,
   PROMPT_SECTION_ORDER,
 } from "../core/prompt-assembly.ts";
+import {
+  gatherAgentPromptSections,
+  type PromptContextAgent,
+} from "../core/prompt-context.ts";
 import {
   startDiscussion,
   postToDiscussion,
@@ -2545,6 +2549,89 @@ describe("Prompt assembly", () => {
     assert.ok(COMMON_PRINCIPLES.includes("amux_task comment"));
     assert.ok(COMMON_PRINCIPLES.includes("executable leaf"));
     assert.ok(COMMON_PRINCIPLES.includes("Review before done"));
+  });
+});
+
+describe("Prompt context gatherer", () => {
+  const session = testSession("promptctx");
+  const agentId = newAgentId();
+  const agent: PromptContextAgent = {
+    session,
+    id: agentId,
+    name: "CtxAgent",
+    roleName: "developer",
+    roleInstructions: "You implement tasks.",
+    address: `${session}/CtxAgent`,
+  };
+
+  before(async () => {
+    // Register the agent so findById resolves its workspace for the identity section.
+    await registerAgent(session, {
+      id: agentId,
+      name: "CtxAgent",
+      session,
+      role: "developer",
+      roleName: "developer",
+      cwd: "/tmp",
+      pid: 0,
+      status: "online",
+      registeredAt: new Date().toISOString(),
+      lastHeartbeat: new Date().toISOString(),
+      workspace: "/tmp/fake-workspace",
+    });
+  });
+  after(() => cleanupSession(session));
+
+  it("returns all nine PromptSections keys with canonical commonPrinciples", async () => {
+    const sections = await gatherAgentPromptSections(agent);
+    const keys = Object.keys(sections);
+    for (const k of [
+      "commonPrinciples", "waysOfWorking", "projectContext", "roleProfile",
+      "identity", "workState", "teamContext", "interfaceGuidance", "openDiscussions",
+    ]) {
+      assert.ok(keys.includes(k), `missing section ${k}`);
+    }
+    assert.equal(sections.commonPrinciples, COMMON_PRINCIPLES);
+  });
+
+  it("populates waysOfWorking and projectContext when set", async () => {
+    writeWaysOfWorking(session, "## Communication\nPrefer task comments.");
+    writeProjectContext(session, "Ship the prompt extraction.");
+    const sections = await gatherAgentPromptSections(agent);
+    assert.ok(sections.waysOfWorking.includes("Prefer task comments."));
+    assert.ok(sections.projectContext.includes("Ship the prompt extraction."));
+  });
+
+  it("populates roleProfile from role instructions; empty when absent", async () => {
+    const sections = await gatherAgentPromptSections(agent);
+    assert.ok(sections.roleProfile.includes("Your Role: developer"));
+    assert.ok(sections.roleProfile.includes("implement tasks"));
+
+    const none = await gatherAgentPromptSections({ ...agent, roleInstructions: undefined, roleName: undefined });
+    assert.equal(none.roleProfile, "");
+  });
+
+  it("includes the active in-progress task in workState", async () => {
+    const t = await addTask(session, {
+      title: "Active work", status: "in-progress",
+      assigneeId: agentId, assignee: "CtxAgent",
+      createdBy: "Test", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    const sections = await gatherAgentPromptSections(agent);
+    assert.ok(sections.workState.includes("Active Task"));
+    assert.ok(sections.workState.includes(t.id));
+    assert.ok(sections.workState.includes("Active work"));
+  });
+
+  it("uses getWorkspaceBranch callback for identity; defaults to unknown when omitted", async () => {
+    const withBranch = await gatherAgentPromptSections(agent, {
+      getWorkspaceBranch: async () => "feature/test",
+    });
+    assert.ok(withBranch.identity.includes("branch: feature/test"));
+    assert.ok(withBranch.identity.includes("/tmp/fake-workspace"));
+
+    const noCallback = await gatherAgentPromptSections(agent);
+    assert.ok(noCallback.identity.includes("branch: unknown"));
   });
 });
 
