@@ -337,6 +337,11 @@ export function startDiscussion(
   const topicErr = validateTopic(args.topic);
   if (topicErr) throw new Error(topicErr);
 
+  if (args.content && args.content.trim()) {
+    const contentErr = validatePostContent(args.content);
+    if (contentErr) throw new Error(contentErr);
+  }
+
   const id = nextDiscussionId(session);
   const kind: ChannelKind = args.kind ?? "discussion";
   const audience: ChannelAudience = args.audience ?? "all";
@@ -365,8 +370,6 @@ export function startDiscussion(
   appendJsonlSync(discussionPath(session, id), createdEvent);
 
   if (args.content && args.content.trim()) {
-    const contentErr = validatePostContent(args.content);
-    if (contentErr) throw new Error(contentErr);
     appendJsonlSync(discussionPath(session, id), {
       eventId: newEventId(),
       type: "posted",
@@ -464,9 +467,12 @@ export function closeDiscussion(
 
 /** Project a discussion into a compact summary (no post bodies). */
 export function summarizeDiscussion(d: Discussion): DiscussionSummary {
-  const lastActivityAt = d.posts.length > 0
-    ? d.posts[d.posts.length - 1]!.timestamp
-    : d.closedAt ?? d.createdAt;
+  const activityTimestamps = [
+    d.createdAt,
+    ...d.posts.map((p) => p.timestamp),
+    ...(d.closedAt ? [d.closedAt] : []),
+  ];
+  const lastActivityAt = activityTimestamps.sort().at(-1)!;
   return {
     id: d.id,
     topic: d.topic,
@@ -586,7 +592,13 @@ function withCreatorIncluded(
 ): ChannelParticipant[] {
   const byId = new Map<string, ChannelParticipant>();
   for (const p of participants) byId.set(p.id, p);
-  byId.set(creator.id, { session: creator.session, id: creator.id, name: creator.name });
+  const existingCreator = byId.get(creator.id);
+  byId.set(creator.id, {
+    ...existingCreator,
+    session: creator.session,
+    id: creator.id,
+    name: creator.name,
+  });
   return [...byId.values()];
 }
 

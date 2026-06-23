@@ -2898,7 +2898,7 @@ describe("Discussions: pure replay and validation (no filesystem)", () => {
       {
         eventId: "e1", type: "created", timestamp: "2026-06-23T00:00:00.000Z",
         authorId: "a1", authorName: "Lead", authorSession: "s",
-        channel: { id: "DISC-01", topic: "t", kind: "retro", status: "open", participants: [] },
+        channel: { id: "DISC-01", topic: "t", kind: "retro", status: "open", audience: "all", participants: [] },
       },
       {
         eventId: "e2", type: "posted", timestamp: "2026-06-23T00:01:00.000Z",
@@ -2907,7 +2907,7 @@ describe("Discussions: pure replay and validation (no filesystem)", () => {
       {
         eventId: "e3", type: "closed", timestamp: "2026-06-23T00:02:00.000Z",
         authorId: "a1", authorName: "Lead", authorSession: "s", summary: "done",
-        channel: { id: "DISC-01", topic: "t", kind: "retro", status: "closed", participants: [] },
+        channel: { id: "DISC-01", topic: "t", kind: "retro", status: "closed", audience: "all", participants: [] },
       },
     ];
     const d = replayEvents("DISC-01", events)!;
@@ -2916,6 +2916,7 @@ describe("Discussions: pure replay and validation (no filesystem)", () => {
     assert.equal(d.posts.length, 1);
     assert.equal(d.posts[0]!.content, "hello");
     assert.equal(d.summary, "done");
+    assert.equal(summarizeDiscussion(d).lastActivityAt, "2026-06-23T00:02:00.000Z");
   });
 
   it("replayEvents returns null for empty or missing-created logs", () => {
@@ -2962,6 +2963,25 @@ describe("Discussions: initial content on start", () => {
     assert.equal(d.posts[0]!.authorName, "Lead");
   });
 
+  it("startDiscussion validates initial content before creating a log", () => {
+    const invalid = testSession("disc-seed-invalid");
+    try {
+      assert.throws(
+        () => startDiscussion(invalid, {
+          topic: "sync",
+          participants: parts,
+          author: { ...author, session: invalid },
+          content: "x".repeat(8001),
+        }),
+        /too long/i,
+      );
+      assert.equal(nextDiscussionId(invalid), "DISC-01");
+      assert.deepEqual(readAllDiscussions(invalid), []);
+    } finally {
+      cleanupSession(invalid);
+    }
+  });
+
   it("readAllDiscussions returns empty for a fresh session", () => {
     const fresh = testSession("disc-fresh");
     try {
@@ -2990,6 +3010,15 @@ describe("Discussions: audience mode and participant resolution", () => {
     const resolved = resolveDiscussionParticipants("all", author, allAgents);
     const ids = resolved.map((p) => p.id).sort();
     assert.deepEqual(ids, ["dev-1", "dev-2", "lead-1"]);
+  });
+
+  it("resolveDiscussionParticipants preserves creator role from the resolved participant snapshot", () => {
+    const resolved = resolveDiscussionParticipants(
+      "all",
+      author,
+      [{ id: "lead-1", name: "Lead", session, role: "lead-architect" }],
+    );
+    assert.equal(resolved.find((p) => p.id === "lead-1")!.role, "lead-architect");
   });
 
   it("resolveDiscussionParticipants(agents) returns only explicit agents plus creator", () => {
