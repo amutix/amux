@@ -45,7 +45,8 @@ export interface InboxMessage {
   message: string; // message content
   category?: string; // intent hint: "urgent", "fyi", "brainstorm", "task-comment"
   taskId?: string; // optional related task ID for context
-  notificationType?: string; // e.g. "task-comment"
+  discussionId?: string; // optional related discussion ID for discussion notifications
+  notificationType?: string; // e.g. "task-comment", "discussion-post"
   commentId?: string; // related task comment ID, when applicable
   preview?: string; // short preview for notification UIs/logs
   requiresAttention?: boolean; // whether recipient should reassess state

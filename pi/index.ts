@@ -139,6 +139,7 @@ import {
   type ChannelKind,
   type ChannelAudience,
   type ChannelParticipant,
+  type Discussion,
   startDiscussion,
   postToDiscussion,
   closeDiscussion,
@@ -149,6 +150,7 @@ import {
   renderDiscussionList,
   resolveDiscussionParticipants,
   normalizeAudience,
+  postPreview,
 } from "../core/discussions";
 import {
   renderTaskListRow,
@@ -625,11 +627,15 @@ Read and write shared documents using the standard read/write/edit tools.
     {
       const open = openDiscussionSummaries(session);
       if (open.length > 0) {
-        openDiscussions = `## Open Discussions (${open.length})\n${open.map((d) => `- ${d.id}: ${d.topic} (${d.postCount} post${d.postCount !== 1 ? "s" : ""})`).join("\n")}`;
+        openDiscussions = `## Open Discussions (${open.length})\n${open.slice(0, 5).map((d) => {
+          const last = formatMessageAge(d.lastActivityAt);
+          const participants = d.participantNames.join(", ") || "(none)";
+          return `- ${d.id} ${d.kind}: ${d.topic} — audience: ${d.audience}, ${d.postCount} post${d.postCount !== 1 ? "s" : ""}, last ${last}, participants: ${participants}`;
+        }).join("\n")}`;
       }
     }
 
-        return {
+    return {
       commonPrinciples: COMMON_PRINCIPLES,
       waysOfWorking,
       projectContext,
@@ -1689,6 +1695,80 @@ Read and write shared documents using the standard read/write/edit tools.
   });
 
 
+  async function discussionParticipantsForSession(session: string): Promise<ChannelParticipant[]> {
+    const registry = await readRegistry(session);
+    return Object.values(registry).map((agent) => ({
+      session,
+      id: agent.id,
+      name: agent.name,
+      role: agent.roleName || agent.role,
+    }));
+  }
+
+  async function resolveDiscussionParticipantInputs(
+    session: string,
+    inputs: string[],
+  ): Promise<ChannelParticipant[]> {
+    const registry = await readRegistry(session);
+    const byName = new Map(Object.values(registry).map((agent) => [agent.name.toLowerCase(), agent]));
+    const byId = new Map(Object.values(registry).map((agent) => [agent.id, agent]));
+    const resolved: ChannelParticipant[] = [];
+    const missing: string[] = [];
+
+    for (const input of inputs) {
+      const trimmed = input.trim();
+      if (!trimmed) continue;
+      if (trimmed.includes("/")) {
+        missing.push(`${input} (cross-session participants are not supported yet)`);
+        continue;
+      }
+      const agent = byId.get(trimmed) || byName.get(trimmed.toLowerCase());
+      if (!agent) {
+        missing.push(input);
+        continue;
+      }
+      resolved.push({
+        session,
+        id: agent.id,
+        name: agent.name,
+        role: agent.roleName || agent.role,
+      });
+    }
+
+    if (missing.length > 0) {
+      throw new Error(`Discussion participant(s) not found in ${session}: ${missing.join(", ")}`);
+    }
+    return resolved;
+  }
+
+  async function notifyDiscussionParticipants(
+    discussion: Discussion,
+    notificationType: "discussion-started" | "discussion-post" | "discussion-closed",
+    message: string,
+    options: { notify?: boolean; silent?: boolean },
+    previewSource?: string,
+  ): Promise<number> {
+    if (options.silent || options.notify === false) return 0;
+    const targets = discussion.participants.filter((p) => p.id !== myId);
+    for (const target of targets) {
+      sendToInbox(target.session, target.id, {
+        id: newMessageId(),
+        from: myId!,
+        fromName: myName!,
+        fromRole: myRoleName,
+        fromSession: mySession!,
+        timestamp: new Date().toISOString(),
+        message,
+        category: discussion.kind === "brainstorm" ? "brainstorm" : "fyi",
+        notificationType,
+        discussionId: discussion.id,
+        preview: postPreview(previewSource || message),
+        requiresAttention: true,
+      });
+    }
+    return targets.length;
+  }
+
   // - amux_discussion -------------------------------------------
 
   pi.registerTool({
@@ -1702,6 +1782,7 @@ Read and write shared documents using the standard read/write/edit tools.
     promptSnippet: "Start or contribute to team discussions (start, post, show, list, close)",
     promptGuidelines: [
       "Use amux_discussion for team-wide topics: retros, brainstorms, design reviews, syncs.",
+      "Use audience='all' for whole-team discussions and audience='agents' with participants for focused groups; audience controls notifications, not access control.",
       "Use amux_task comment for task-scoped discussion — discussions are NOT a replacement.",
       "Post to existing discussions rather than starting duplicates.",
       "Close discussions with a summary of outcomes rather than leaving them open indefinitely.",
@@ -1715,44 +1796,47 @@ Read and write shared documents using the standard read/write/edit tools.
       kind: Type.Optional(StringEnum(["discussion", "retro", "brainstorm", "design", "sync", "channel"] as const)),
       audience: Type.Optional(StringEnum(["all", "agents"] as const)),
       participants: Type.Optional(Type.Array(Type.String({
-        description: "Agent names for explicit participant discussions"
+        description: "Agent names or IDs for explicit participant discussions (audience=agents). Same-session only."
       }))),
+      notify: Type.Optional(Type.Boolean({ description: "Notify participants. Default true." })),
+      silent: Type.Optional(Type.Boolean({ description: "Do not notify participants." })),
     }),
 
     async execute(_id, params) {
       if (!mySession || !myId || !myName) {
-        throw new Error("Not registered. Use /amux manage to set up, then /amux join.");
+        throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
       }
 
       switch (params.action) {
         case "start": {
           if (!params.topic) throw new Error("topic is required for start.");
 
-          const participants: ChannelParticipant[] = [];
-          if (params.participants?.length) {
-            for (const name of params.participants) {
-              const agent = await resolveAgent(name, mySession);
-              if (agent) {
-                participants.push({
-                  id: agent.id,
-                  name: agent.name,
-                  role: agent.roleName,
-                });
-              }
-            }
+          const audience = normalizeAudience(params.audience as ChannelAudience | undefined);
+          const author = { id: myId, name: myName, session: mySession };
+          const allAgents = await discussionParticipantsForSession(mySession);
+          const explicitAgents = audience === "agents"
+            ? await resolveDiscussionParticipantInputs(mySession, params.participants || [])
+            : [];
+          if (audience === "agents" && explicitAgents.length === 0 && (!params.participants || params.participants.length === 0)) {
+            throw new Error("participants are required when audience is agents.");
           }
+          const explicitWithCreator = audience === "agents"
+            ? [...explicitAgents, { session: mySession, id: myId, name: myName, role: myRoleName }]
+            : explicitAgents;
+          const participants = resolveDiscussionParticipants(audience, author, allAgents, explicitWithCreator);
 
           const id = startDiscussion(mySession, {
             topic: params.topic,
             kind: params.kind as ChannelKind,
-            audience: normalizeAudience(params.audience as ChannelAudience | undefined),
+            audience,
             participants,
-            author: { id: myId, name: myName, session: mySession, role: myRoleName },
+            author,
             content: params.content,
           });
 
-          const discussion = readDiscussion(mySession, id);
-          const view = renderDiscussion(discussion!);
+          const discussion = readDiscussion(mySession, id)!;
+          await notifyDiscussionParticipants(discussion, "discussion-started", `${myName} started ${discussion.id}: "${discussion.topic}". Use amux_discussion show ${discussion.id}.`, params);
+          const view = renderDiscussion(discussion);
           return {
             content: [{ type: "text", text: view }],
             details: { discussion },
@@ -1769,19 +1853,13 @@ Read and write shared documents using the standard read/write/edit tools.
           });
           if (!discussion) throw new Error(`Discussion ${params.id} not found.`);
 
-          // Notify participants (excluding author)
-          const targets = resolveDiscussionParticipants(discussion, myId);
-          for (const p of targets) {
-            sendToInbox(mySession, p.id, {
-              id: newMessageId(),
-              from: myId,
-              fromName: myName,
-              fromRole: myRoleName,
-              fromSession: mySession,
-              timestamp: new Date().toISOString(),
-              message: `New post in ${discussion.id}: "${discussion.topic}". Use amux_discussion show ${discussion.id}.`,
-            });
-          }
+          await notifyDiscussionParticipants(
+            discussion,
+            "discussion-post",
+            `New post in ${discussion.id}: "${discussion.topic}". Use amux_discussion show ${discussion.id}.`,
+            params,
+            params.content,
+          );
 
           const view = renderDiscussion(discussion);
           return {
@@ -1827,19 +1905,13 @@ Read and write shared documents using the standard read/write/edit tools.
           });
           if (!discussion) throw new Error(`Discussion ${params.id} not found.`);
 
-          // Notify participants (excluding author)
-          const targets = resolveDiscussionParticipants(discussion, myId);
-          for (const p of targets) {
-            sendToInbox(mySession, p.id, {
-              id: newMessageId(),
-              from: myId,
-              fromName: myName,
-              fromRole: myRoleName,
-              fromSession: mySession,
-              timestamp: new Date().toISOString(),
-              message: `${discussion.id}: "${discussion.topic}" has been closed by ${myName}: ${params.summary.trim()}.`,
-            });
-          }
+          await notifyDiscussionParticipants(
+            discussion,
+            "discussion-closed",
+            `${discussion.id}: "${discussion.topic}" has been closed by ${myName}: ${params.summary.trim()}.`,
+            params,
+            params.summary,
+          );
 
           const view = renderDiscussion(discussion);
           return {

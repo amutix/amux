@@ -181,6 +181,19 @@ Lifecycle events (assign, pick, review, done, drop, block) are automatically rec
 
 For direct messages that need an answer, set `responseRequired: true`; `brainstorm` messages default to requiring a response. Pending replies are shown in the sender's prompt until the recipient replies with `inReplyTo`.
 
+### Team discussions
+
+Use `amux_discussion` for cross-cutting multi-party collaboration such as retros, brainstorms, design jams, and syncs. Keep task-scoped discussion on `amux_task comment`; discussions are for topics whose audience is a group rather than one task thread.
+
+```bash
+amux_discussion({ action: "start", topic: "Retro: v1.2", kind: "retro", audience: "all" })
+amux_discussion({ action: "start", topic: "Storage design", audience: "agents", participants: ["Lead", "Developer2"] })
+amux_discussion({ action: "post", id: "DISC-01", content: "One option is..." })
+amux_discussion({ action: "close", id: "DISC-01", summary: "Outcome: use append-only JSONL." })
+```
+
+Audience controls expected participation and notifications, not access control. `all` resolves all same-session agents at creation time; `agents` resolves the explicit same-session participants. Open discussions appear in prompts as compact metadata only; full discussion text is shown on demand with `show`.
+
 For token-efficient review handoff, include a compact free-form summary when marking work ready for review:
 
 ```bash
@@ -229,7 +242,7 @@ Existing items without these fields behave as regular tasks. New item IDs use ty
 
 Availability is auto-updated by task lifecycle: `pick` → working, `done`/`drop` → idle (preserves explicit focus/away). Idle agents receive a single generic attention signal when new work is assigned; working/focus/away agents are not interrupted.
 
-## Tools (10)
+## Tools (11)
 
 | Tool | Actions | Purpose |
 |------|---------|---------|

@@ -24,7 +24,7 @@ export const COMMON_PRINCIPLES = `## amux Operating Principles
 You are part of a coordinated agent team. Shared operating rules:
 
 - **State is the source of truth.** Derive current truth from the backlog, registry, task comments, reservations, and journal — not from messages. Task assignments appear in your work state, not as inbox instructions.
-- **Coordinate like a dev team.** Prefer \`amux_task comment\` for task-scoped discussion; use \`amux_send\` only for exceptional, non-task communication. Claim files via reservations before editing shared code.
+- **Coordinate like a dev team.** Prefer \`amux_task comment\` for task-scoped discussion; use \`amux_discussion\` for cross-cutting team retros/brainstorms/design jams; use \`amux_send\` only for exceptional direct communication. Claim files via reservations before editing shared code.
 - **Work the backlog deliberately.** Use \`amux_task summary\` (or \`/amux progress\`) for a hierarchical overview before choosing work. Items are typed (initiative/milestone/task/bug/chore/spec); initiatives and milestones are context containers — assign and pick executable leaf items, not containers. Inspect parent context with \`amux_task show\` before implementing a child item.
 - **Review before done.** Substantive work goes to review before completion. Report outcomes, key decisions, risks, and test status.`;
 
