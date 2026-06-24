@@ -42,6 +42,7 @@ import { newMessageId } from "../messaging.ts";
 import {
   deliverNotificationPlans,
   planAssignmentNotification,
+  planTransitionNotifications,
   notifyTaskCommentSubscribers,
   type NotificationSender,
 } from "../notification-service.ts";
@@ -55,6 +56,11 @@ import {
   optionalStringProp,
   stringProp,
 } from "./types.ts";
+import {
+  resolveNotifyOverride,
+  type NotifyTargetMode,
+  type LifecycleTransitionAction,
+} from "../task-state-machine.ts";
 
 // ─── Params ──────────────────────────────────────────────────
 
@@ -65,6 +71,7 @@ const TASK_ACTIONS = [
 
 const ITEM_TYPES = ["task", "initiative", "milestone", "bug", "chore", "spec"] as const;
 const TASK_STATUSES = ["todo", "assigned", "in-progress", "review", "done", "blocked"] as const;
+const NOTIFY_TARGETS = ["none", "subscribers", "all", "agents"] as const;
 
 interface TaskParams {
   action: typeof TASK_ACTIONS[number];
@@ -87,6 +94,10 @@ interface TaskParams {
   silent?: boolean;
   /** For list/show: opt into verbose summaries, spec previews, and full comment/activity history. Defaults false. */
   full?: boolean;
+  /** For pick/review/done/drop/block: notify targeted agents about the transition. Defaults to none (silent). */
+  notifyTarget?: NotifyTargetMode;
+  /** For pick/review/done/drop/block with notifyTarget=agents: explicit same-session agent names to notify. */
+  notifyAgents?: string[];
   // list
   status?: string;
 }
@@ -94,6 +105,38 @@ interface TaskParams {
 /** Build the NotificationSender from the neutral tool context. */
 function senderFromContext(ctx: AmuxToolContext): NotificationSender {
   return { id: ctx.agentId, name: ctx.agentName, roleName: ctx.roleName, session: ctx.session };
+}
+
+/**
+ * Resolve and deliver a lifecycle-transition notification if the caller supplied
+ * a `notifyTarget` override. Returns the names of notified recipients.
+ * Silent by default (no override → no plans → no delivery). Assignment and
+ * task comments have their own notification paths and do not use this helper.
+ */
+async function maybeNotifyTransition(
+  ctx: AmuxToolContext,
+  task: BacklogItem,
+  action: LifecycleTransitionAction,
+  p: TaskParams,
+  preview?: string,
+): Promise<string[]> {
+  const target = resolveNotifyOverride(p.notifyTarget, p.notifyAgents);
+  // No override supplied (or explicitly none) → silent. This preserves the
+  // pre-existing default: lifecycle transitions other than assign do not notify.
+  if (!target || target.mode === "none") return [];
+
+  const plans = await planTransitionNotifications({
+    session: ctx.session,
+    task,
+    action,
+    target,
+    senderId: ctx.agentId,
+    senderName: ctx.agentName,
+    senderSession: ctx.session,
+    preview,
+  });
+  await deliverNotificationPlans(plans, senderFromContext(ctx));
+  return plans.map((plan) => plan.recipientName);
 }
 
 // ─── Action helpers ──────────────────────────────────────────
@@ -279,6 +322,8 @@ async function executePick(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToo
   if (pickResult.conflicts.length > 0) {
     pickText += `\n  \u26a0\ufe0f Could not reserve: ${pickResult.conflicts.map((c) => `${c.path} (${c.detail})`).join("; ")}`;
   }
+  const pickNotified = await maybeNotifyTransition(ctx, pickResult.task, "pick", p, p.reason);
+  if (pickNotified.length > 0) pickText += `\n  Notified: ${pickNotified.join(", ")}.`;
   return { text: pickText, details: pickResult };
 }
 
@@ -293,6 +338,8 @@ async function executeReview(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxT
   }
   reviewText += `\n  Reviewer flow: read spec → inspect diff → inspect tests → comment or done.`;
   if (reviewResult.released.length > 0) reviewText += `\n  Released: ${reviewResult.released.join(", ")}`;
+  const reviewNotified = await maybeNotifyTransition(ctx, reviewResult.task, "review", p, p.summary);
+  if (reviewNotified.length > 0) reviewText += `\n  Notified: ${reviewNotified.join(", ")}.`;
   return { text: reviewText, details: reviewResult };
 }
 
@@ -302,6 +349,8 @@ async function executeDone(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToo
   let doneText = `\u2713 Completed ${doneResult.task.id}: ${doneResult.task.title}`;
   if (p.summary) doneText += `\n  Summary: ${p.summary}`;
   if (doneResult.released.length > 0) doneText += `\n  Released: ${doneResult.released.join(", ")}`;
+  const doneNotified = await maybeNotifyTransition(ctx, doneResult.task, "done", p, p.summary);
+  if (doneNotified.length > 0) doneText += `\n  Notified: ${doneNotified.join(", ")}.`;
   return { text: doneText, details: doneResult };
 }
 
@@ -310,6 +359,8 @@ async function executeDrop(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToo
   const dropResult = await serviceDropTask(ctx.session, p.id, ctx.agentId, ctx.agentName);
   let dropText = `\u2713 Dropped ${dropResult.task.id}: ${dropResult.task.title}  -- back in queue`;
   if (dropResult.released.length > 0) dropText += `\n  Released: ${dropResult.released.join(", ")}`;
+  const dropNotified = await maybeNotifyTransition(ctx, dropResult.task, "drop", p);
+  if (dropNotified.length > 0) dropText += `\n  Notified: ${dropNotified.join(", ")}.`;
   return { text: dropText, details: dropResult };
 }
 
@@ -317,7 +368,10 @@ async function executeBlock(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxTo
   if (!p.id) throw new Error("Task ID is required for block.");
   if (!p.reason) throw new Error("Reason is required for block.");
   const blockResult = await serviceBlockTask(ctx.session, p.id, ctx.agentId, ctx.agentName, p.reason);
-  return { text: `\u26a0\ufe0f ${blockResult.task.id} blocked: ${p.reason}`, details: blockResult };
+  const blockNotified = await maybeNotifyTransition(ctx, blockResult.task, "block", p, p.reason);
+  let blockText = `\u26a0\ufe0f ${blockResult.task.id} blocked: ${p.reason}`;
+  if (blockNotified.length > 0) blockText += `\n  Notified: ${blockNotified.join(", ")}.`;
+  return { text: blockText, details: blockResult };
 }
 
 // ─── Tool definition ─────────────────────────────────────────
@@ -339,6 +393,7 @@ export const taskTool: AmuxToolDefinition<TaskParams> = {
     "Picking a task auto-reserves its files. Done/drop auto-releases them.",
     "Use action 'review' when implementation is ready for review/integration, and include commit/branch, diff summary, tests run, and known risks in summary.",
     "Use action 'done' when reviewed/integrated/verified; reviewers should inspect spec + diff + tests before completing.",
+    "For pick/review/done/drop/block, pass notifyTarget (and notifyAgents) to wake up targeted agents about a transition (e.g. a ready-for-review or blocker handoff) without reassigning the task. Default is silent; assignment and comments use their own notification paths.",
     "Use action 'assign' to delegate executable leaf work items to same-session agents  -- the assignee accepts by picking",
     "Create and review high-level initiatives/milestones and their children before assigning executable child work.",
     "It is OK to assign all defined leaf work up front; use dependsOn to enforce order, and assignees should pick one item at a time after completing the current item.",
@@ -380,6 +435,12 @@ export const taskTool: AmuxToolDefinition<TaskParams> = {
       notify: optionalBoolProp("For comment: notify task subscribers (default true). Set false for silent comments."),
       silent: optionalBoolProp("For comment: if true, do not notify task subscribers."),
       full: optionalBoolProp("For list/show: opt into verbose summaries, spec preview, and full comment/activity history. Default false keeps output compact."),
+      notifyTarget: enumProp(NOTIFY_TARGETS, "For pick/review/done/drop/block: notification target mode. Default is silent/no notification."),
+      notifyAgents: {
+        type: "array",
+        description: "Agent names or IDs for lifecycle transition notifications when notifyTarget=agents. Same-session only.",
+        items: stringProp(),
+      },
       // list
       status: { type: "string", description: "Filter by status: todo, assigned, in-progress, review, done, blocked", enum: [...TASK_STATUSES] },
     },

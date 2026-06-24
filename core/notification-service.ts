@@ -13,11 +13,21 @@ import {
   taskCommentNotificationMessage,
   discussionNotificationMessage,
   assignmentNotificationMessage,
+  transitionNotificationMessage,
+  messagePreview,
 } from "./messaging.ts";
-import { resolveTaskCommentSubscribers, taskCommentPreview, type TaskComment } from "./task-comments.ts";
+import { resolveTaskCommentSubscribers, taskCommentPreview, readTaskComments, type TaskComment } from "./task-comments.ts";
 import { type BacklogItem } from "./backlog.ts";
 import { type Discussion, postPreview } from "./discussions.ts";
-import { type AgentInfo, shouldSignalAgent, updateAgent, readRegistry } from "./registry.ts";
+import {
+  type AgentInfo,
+  shouldSignalAgent,
+  updateAgent,
+  readRegistry,
+  getOnlineAgents,
+  parseAddress,
+} from "./registry.ts";
+import { type NotifyTarget, type LifecycleTransitionAction } from "./task-state-machine.ts";
 
 // ─── Plan Type ────────────────────────────────────────────────
 
@@ -156,6 +166,107 @@ export function planAssignmentNotification(
       requiresAttention: true,
     },
   };
+}
+
+// ─── Lifecycle transitions ──────────────────────────────
+
+export interface TransitionNotificationArgs {
+  session: string;
+  task: BacklogItem;
+  action: LifecycleTransitionAction;
+  /** Resolved notify target (from override or transition default). */
+  target: NotifyTarget;
+  senderId: string;
+  senderName: string;
+  senderSession: string;
+  /** Optional summary/reason text to include as a preview. */
+  preview?: string;
+}
+
+/**
+ * Resolve a lifecycle-transition notify target into concrete recipient plans.
+ *
+ * Target modes:
+ * - `none`: no plans (silent). Returns [].
+ * - `subscribers`: reuses task-comment subscriber resolution (assignee,
+ *   creator, previous commenters, @mentions in the preview), excluding sender.
+ * - `all`: effectively-online agents in the current session, excluding sender.
+ * - `agents`: explicit same-session names/IDs. Cross-session targets are
+ *   rejected (task lifecycle v1 is single-session). Unknown names throw.
+ *   Sender is excluded if listed.
+ *
+ * The sender is always excluded from recipients (you don't notify yourself
+ * about your own transition).
+ */
+export async function planTransitionNotifications(
+  args: TransitionNotificationArgs,
+): Promise<NotificationPlan[]> {
+  const { target } = args;
+  if (target.mode === "none") return [];
+
+  let recipients: AgentInfo[];
+  switch (target.mode) {
+    case "subscribers": {
+      const registry = await readRegistry(args.session);
+      const agents = Object.values(registry);
+      const previousComments = readTaskComments(args.session, args.task.id);
+      recipients = resolveTaskCommentSubscribers(
+        args.task,
+        previousComments,
+        agents,
+        args.senderId,
+        args.preview ?? "",
+      );
+      break;
+    }
+    case "all": {
+      recipients = (await getOnlineAgents(args.session)).filter((a) => a.id !== args.senderId);
+      break;
+    }
+    case "agents": {
+      const registry = await readRegistry(args.session);
+      const resolved = new Map<string, AgentInfo>();
+      for (const addr of target.agents) {
+        const { session, name } = parseAddress(addr, args.session);
+        if (session !== args.session) {
+          throw new Error(
+            `Cross-session task notification target "${addr}" is not supported. ` +
+            `Task lifecycle notifications can only target agents within the ` +
+            `current session ("${args.session}").`,
+          );
+        }
+        const nameLower = name.toLowerCase();
+        const agent = registry[name] ?? Object.values(registry).find((a) => a.name.toLowerCase() === nameLower);
+        if (!agent) {
+          throw new Error(`Agent "${addr}" not found in session "${args.session}".`);
+        }
+        resolved.set(agent.id, agent);
+      }
+      recipients = [...resolved.values()].filter((a) => a.id !== args.senderId);
+      break;
+    }
+  }
+
+  return recipients.map((r) => ({
+    recipientId: r.id,
+    recipientSession: r.session ?? args.senderSession,
+    recipientName: r.name,
+    shouldSignal: shouldSignalAgent(r),
+    message: {
+      message: transitionNotificationMessage({
+        action: args.action,
+        taskId: args.task.id,
+        taskTitle: args.task.title,
+        authorName: args.senderName,
+        preview: args.preview,
+      }),
+      category: "fyi",
+      notificationType: `task-${args.action}`,
+      taskId: args.task.id,
+      preview: args.preview ? messagePreview(args.preview, 200) : undefined,
+      requiresAttention: true,
+    },
+  }));
 }
 
 // ─── Delivery ────────────────────────────────────────────────

@@ -132,6 +132,7 @@ import {
   taskCommentNotificationMessage,
   assignmentNotificationMessage,
   discussionNotificationMessage,
+  transitionNotificationMessage,
   type InboxMessage,
 } from "../core/messaging.ts";
 
@@ -196,6 +197,8 @@ import {
   planTaskCommentNotifications,
   planDiscussionNotifications,
   planAssignmentNotification,
+  planTransitionNotifications,
+  deliverNotificationPlans,
 } from "../core/notification-service.ts";
 import {
   sanitizeBranchName,
@@ -224,6 +227,7 @@ import {
   formatTaskTransitionActivity,
   assertTaskTransitionAllowed,
   assertTaskTransitionOwnership,
+  resolveNotifyOverride,
   type TaskState,
   type TaskTransitionAction,
 } from "../core/task-state-machine.ts";
@@ -3153,6 +3157,11 @@ describe("Neutral tool registry (SPEC-18)", () => {
     assert.deepEqual(journalTool.inputSchema.required, ["action"]);
     assert.deepEqual(journalTool.inputSchema.properties.action.enum, ["add", "list"]);
     assert.deepEqual(journalTool.inputSchema.properties.type.enum, ["decision", "learning", "progress"]);
+
+    assert.equal(taskTool.name, "amux_task");
+    assert.deepEqual(taskTool.inputSchema.properties.notifyTarget.enum, ["none", "subscribers", "all", "agents"]);
+    assert.equal(taskTool.inputSchema.properties.notifyAgents.type, "array");
+    assert.equal(taskTool.inputSchema.properties.full.type, "boolean");
   });
 });
 
@@ -4331,5 +4340,183 @@ describe("Discussions: audience mode and participant resolution", () => {
     assert.equal(plans[0]!.message.category, "brainstorm");
     assert.equal(plans[0]!.message.notificationType, "discussion-post");
     assert.match(plans[0]!.message.message, /Post added to discussion DISC-01 by Lead/);
+  });
+});
+
+describe("Task transition notification targets (SPEC-19 slice 3)", () => {
+  const session = testSession("transition-notify");
+  const now = new Date().toISOString();
+  let devId: string;
+  let reviewerId: string;
+
+  before(async () => {
+    devId = newAgentId();
+    reviewerId = newAgentId();
+    await registerAgent(session, { id: devId, name: "Developer", session, role: "dev", roleName: "developer", cwd: "/tmp", pid: 1, status: "online", registeredAt: now, lastHeartbeat: now });
+    await registerAgent(session, { id: reviewerId, name: "Reviewer", session, role: "reviewer", roleName: "reviewer", cwd: "/tmp", pid: 2, status: "online", registeredAt: now, lastHeartbeat: now });
+    await goOnline(session, devId, process.pid);
+    await goOnline(session, reviewerId, process.pid);
+  });
+  after(() => cleanupSession(session));
+
+  const task = (overrides: Partial<BacklogItem> = {}): BacklogItem => ({
+    id: "TASK-T1", title: "Notify target", status: "in-progress",
+    assigneeId: devId, assignee: "Developer", createdBy: "Lead",
+    createdAt: now, updatedAt: now, ...overrides,
+  } as BacklogItem);
+
+  it("resolveNotifyOverride maps modes and rejects unknown", () => {
+    assert.equal(resolveNotifyOverride(undefined), undefined);
+    assert.deepEqual(resolveNotifyOverride("none"), { mode: "none" });
+    assert.deepEqual(resolveNotifyOverride("agents", ["Reviewer"]), { mode: "agents", agents: ["Reviewer"] });
+    assert.deepEqual(resolveNotifyOverride("agents"), { mode: "agents", agents: [] });
+    assert.throws(() => resolveNotifyOverride("bogus" as never), /Invalid notifyTarget/);
+  });
+
+  it("planTransitionNotifications none returns no plans", async () => {
+    const plans = await planTransitionNotifications({
+      session, task: task(), action: "review", target: { mode: "none" },
+      senderId: devId, senderName: "Developer", senderSession: session,
+    });
+    assert.deepEqual(plans, []);
+  });
+
+  it("planTransitionNotifications agents resolves same-session name or ID excluding sender", async () => {
+    const plans = await planTransitionNotifications({
+      session, task: task(), action: "review", target: { mode: "agents", agents: ["Reviewer", reviewerId, "Developer"] },
+      senderId: devId, senderName: "Developer", senderSession: session, preview: "ready for review",
+    });
+    assert.equal(plans.length, 1);
+    assert.equal(plans[0]!.recipientName, "Reviewer");
+    assert.equal(plans[0]!.message.notificationType, "task-review");
+    assert.match(plans[0]!.message.message, /TASK-T1.*ready for review by Developer/);
+    assert.equal(plans[0]!.message.requiresAttention, true);
+  });
+
+  it("planTransitionNotifications agents rejects cross-session target", async () => {
+    await assert.rejects(
+      () => planTransitionNotifications({
+        session, task: task(), action: "block", target: { mode: "agents", agents: ["other/Reviewer"] },
+        senderId: devId, senderName: "Developer", senderSession: session,
+      }),
+      /Cross-session task notification target/,
+    );
+  });
+
+  it("planTransitionNotifications agents throws on unknown name", async () => {
+    await assert.rejects(
+      () => planTransitionNotifications({
+        session, task: task(), action: "review", target: { mode: "agents", agents: ["Ghost"] },
+        senderId: devId, senderName: "Developer", senderSession: session,
+      }),
+      /Agent "Ghost" not found/,
+    );
+  });
+
+  it("planTransitionNotifications all reaches online agents excluding sender", async () => {
+    const plans = await planTransitionNotifications({
+      session, task: task(), action: "done", target: { mode: "all" },
+      senderId: devId, senderName: "Developer", senderSession: session,
+    });
+    assert.equal(plans.length, 1);
+    assert.equal(plans[0]!.recipientName, "Reviewer");
+  });
+
+  it("planTransitionNotifications subscribers resolves subscriber set excluding sender", async () => {
+    const plans = await planTransitionNotifications({
+      session, task: task({ assigneeId: reviewerId, assignee: "Reviewer", createdBy: "Developer" }),
+      action: "block", target: { mode: "subscribers" },
+      senderId: devId, senderName: "Developer", senderSession: session, preview: "blocked, pinging @Reviewer",
+    });
+    assert.ok(plans.some((p) => p.recipientName === "Reviewer"));
+    assert.ok(!plans.some((p) => p.recipientName === "Developer"));
+  });
+
+  it("transitionNotificationMessage renders action-appropriate text", () => {
+    assert.match(
+      transitionNotificationMessage({ action: "block", taskId: "TASK-9", taskTitle: "X", authorName: "Dev", preview: "no api" }),
+      /TASK-9 \(X\) blocked by Dev: no api/,
+    );
+    assert.match(
+      transitionNotificationMessage({ action: "pick", taskId: "TASK-9", authorName: "Dev" }),
+      /TASK-9 picked by Dev/,
+    );
+  });
+});
+
+describe("amux_task transition notifications (SPEC-19 slice 3)", () => {
+  const session = testSession("transition-tool");
+  let devId: string;
+  let reviewerId: string;
+  let devCtx: AmuxToolContext;
+
+  before(async () => {
+    devId = newAgentId();
+    reviewerId = newAgentId();
+    const now = new Date().toISOString();
+    await registerAgent(session, { id: devId, name: "Developer", session, role: "dev", roleName: "developer", cwd: "/tmp", pid: 1, status: "online", registeredAt: now, lastHeartbeat: now });
+    await registerAgent(session, { id: reviewerId, name: "Reviewer", session, role: "reviewer", roleName: "reviewer", cwd: "/tmp", pid: 2, status: "online", registeredAt: now, lastHeartbeat: now });
+    await goOnline(session, devId, process.pid);
+    await goOnline(session, reviewerId, process.pid);
+    devCtx = { session, agentId: devId, agentName: "Developer", roleName: "developer" };
+  });
+  after(() => cleanupSession(session));
+
+  const newPickedTask = async (title: string): Promise<string> => {
+    const added = await taskTool.execute(devCtx, { action: "add", title });
+    const id = (added.details as { task: BacklogItem }).task.id;
+    await taskTool.execute(devCtx, { action: "pick", id });
+    return id;
+  };
+
+  it("review with notifyTarget=agents notifies target without reassignment", async () => {
+    const id = await newPickedTask("Feature X");
+    const before = getRecoverableMessages(session, reviewerId).length;
+    const res = await taskTool.execute(devCtx, { action: "review", id, summary: "done", notifyTarget: "agents", notifyAgents: ["Reviewer"] });
+    assert.match(res.text, /Notified: Reviewer/);
+    assert.equal(getRecoverableMessages(session, reviewerId).length, before + 1);
+    const show = await taskTool.execute(devCtx, { action: "show", id });
+    assert.equal((show.details as { task: BacklogItem }).task.assignee, "Developer");
+  });
+
+  it("review is silent by default (no notifyTarget suppresses delivery)", async () => {
+    const id = await newPickedTask("Feature Y");
+    const before = getRecoverableMessages(session, reviewerId).length;
+    const res = await taskTool.execute(devCtx, { action: "review", id, summary: "done" });
+    assert.doesNotMatch(res.text, /Notified:/);
+    assert.equal(getRecoverableMessages(session, reviewerId).length, before);
+  });
+
+  it("block with notifyTarget=agents notifies and keeps assignment", async () => {
+    const id = await newPickedTask("Feature Z");
+    const before = getRecoverableMessages(session, reviewerId).length;
+    const res = await taskTool.execute(devCtx, { action: "block", id, reason: "waiting on API", notifyTarget: "agents", notifyAgents: ["Reviewer"] });
+    assert.match(res.text, /Notified: Reviewer/);
+    assert.equal(getRecoverableMessages(session, reviewerId).length, before + 1);
+  });
+
+  it("drop handoff can notify a targeted agent", async () => {
+    const id = await newPickedTask("Feature D");
+    const before = getRecoverableMessages(session, reviewerId).length;
+    const res = await taskTool.execute(devCtx, { action: "drop", id, notifyTarget: "agents", notifyAgents: ["Reviewer"] });
+    assert.match(res.text, /Notified: Reviewer/);
+    assert.equal(getRecoverableMessages(session, reviewerId).length, before + 1);
+  });
+
+  it("notifyTarget cross-session agent is rejected", async () => {
+    const id = await newPickedTask("Feature W");
+    await assert.rejects(
+      () => taskTool.execute(devCtx, { action: "review", id, summary: "x", notifyTarget: "agents", notifyAgents: ["other/Reviewer"] }),
+      /Cross-session/,
+    );
+  });
+
+  it("comment still uses subscriber notifications, unaffected by lifecycle notifyTarget", async () => {
+    const added = await taskTool.execute(devCtx, { action: "add", title: "Feature C" });
+    const id = (added.details as { task: BacklogItem }).task.id;
+    await taskTool.execute(devCtx, { action: "assign", id, to: "Reviewer" });
+    const before = getRecoverableMessages(session, reviewerId).length;
+    await taskTool.execute(devCtx, { action: "comment", id, content: "note for @Reviewer" });
+    assert.equal(getRecoverableMessages(session, reviewerId).length, before + 1);
   });
 });

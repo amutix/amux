@@ -228,6 +228,35 @@ export function assignmentNotificationMessage(tasks: Array<{ id: string; title: 
   return `Assigned ${tasks.length} tasks to you:\n${lines}\nRun amux_task summary for the current backlog, or amux_task pick to start the next assigned task.`;
 }
 
+/** Phrasing for each lifecycle transition in a notification. */
+const TRANSITION_VERBS: Record<"pick" | "review" | "done" | "drop" | "block", string> = {
+  pick: "picked",
+  review: "marked ready for review",
+  done: "completed",
+  drop: "dropped — back in queue",
+  block: "blocked",
+};
+
+/**
+ * Build a notification message for a task lifecycle transition
+ * (review/block/pick/drop/done). Used when an agent explicitly requests a
+ * targeted wake-up via `notifyTarget`/`notifyAgents`. Lifecycle transitions
+ * stay silent by default; this builder is only invoked when a notify target
+ * is supplied. Assignment and task comments use their own dedicated builders.
+ */
+export function transitionNotificationMessage(args: {
+  action: "pick" | "review" | "done" | "drop" | "block";
+  taskId: string;
+  taskTitle?: string;
+  authorName: string;
+  preview?: string;
+}): string {
+  const title = args.taskTitle ? ` (${args.taskTitle})` : "";
+  const detail = args.preview ? `: ${messagePreview(args.preview, 200)}` : "";
+  const verb = TRANSITION_VERBS[args.action];
+  return `${args.taskId}${title} ${verb} by ${args.authorName}${detail}\nRun amux_task show ${args.taskId} for a compact projection; pass full:true only if you need the full thread.`;
+}
+
 export function discussionNotificationMessage(args: {
   action: "started" | "post" | "closed";
   discussionId: string;

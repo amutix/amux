@@ -38,6 +38,12 @@ export type NotifyTarget =
   | { mode: "all" }
   | { mode: "agents"; agents: string[] };
 
+/** String modes accepted by the `notifyTarget` tool parameter. */
+export type NotifyTargetMode = "none" | "subscribers" | "all" | "agents";
+
+/** Lifecycle transitions that support an explicit notify wake-up. */
+export type LifecycleTransitionAction = "pick" | "review" | "done" | "drop" | "block";
+
 export type TaskTransitionActivity =
   | { type: "assign" }
   | { type: "pick" }
@@ -249,6 +255,33 @@ export function targetStatus(
   action: TaskTransitionAction,
 ): TaskState | "same" | "archive" {
   return getTaskTransitionDefinition(action, from)?.to ?? "same";
+}
+
+/**
+ * Resolve an optional tool override (`notifyTarget` / `notifyAgents` params)
+ * into a `NotifyTarget`. Returns `undefined` when no override is supplied so
+ * callers can fall back to (or skip) the transition's default. Throws on an
+ * unknown mode string.
+ */
+export function resolveNotifyOverride(
+  mode?: NotifyTargetMode,
+  agents?: string[],
+): NotifyTarget | undefined {
+  if (mode === undefined) return undefined;
+  switch (mode) {
+    case "none":
+      return { mode: "none" };
+    case "subscribers":
+      return { mode: "subscribers" };
+    case "all":
+      return { mode: "all" };
+    case "agents":
+      return { mode: "agents", agents: agents ?? [] };
+    default:
+      throw new Error(
+        `Invalid notifyTarget "${mode}". Use one of: none, subscribers, all, agents.`,
+      );
+  }
 }
 
 /**
