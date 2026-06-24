@@ -474,8 +474,12 @@ export default function (pi: ExtensionAPI) {
           return handleStatus(ctx);
         case "progress":
           return handleProgress(ctx);
+        case "work":
+          return handleWork(parts.slice(1), ctx);
         case "show":
           return handleShow(parts.slice(1), ctx);
+        case "team":
+          return handleTeam(parts.slice(1), ctx);
         case "new":
           return handleNew(parts.slice(1), ctx);
         case "wow":
@@ -486,7 +490,7 @@ export default function (pi: ExtensionAPI) {
           return handleProject(parts.slice(1), ctx);
         default:
           ctx.ui.notify(
-            `Unknown: /amux ${sub}\n\nAvailable:\n  /amux              Status\n  /amux join          Join a project as an agent\n  /amux leave         Leave current project\n  /amux progress      Project progress overview\n  /amux show <id>     Show backlog item details\n  /amux new <type>    Create project, agent, or role directly\n  /amux project       Manage project vision/context\n  /amux wow           Show/edit team Ways of Working (WOW.md)\n  /amux prompt        Preview the amux coordination block for this agent\n  /amux status set    Set your availability (idle/working/focus/away)\n  /amux workspace     Git workspace setup and sync`,
+            `Unknown: /amux ${sub}\n\nCanonical:\n  /amux project       Vision, WoW, roles/templates\n  /amux team          Agents, availability, workspaces\n  /amux work          Progress and backlog views\n  /amux prompt        Preview the amux coordination block\n\nShortcuts:\n  /amux join          Join a project as an agent\n  /amux leave         Leave current project\n  /amux progress      Alias for /amux work\n  /amux show <id>     Alias for /amux work show <id>\n  /amux status set    Set availability`,
             "warning"
           );
       }
@@ -530,7 +534,37 @@ export default function (pi: ExtensionAPI) {
     const availStr = me?.availability ? ` | ${me.availability}${me.statusMessage ? `: ${me.statusMessage}` : ""}` : "";
 
     ctx.ui.notify(
-      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux progress      Project progress overview\n  /amux show <id>     Show backlog item details\n  /amux new <type>    Create project, agent, or role directly\n  /amux project       Manage project vision/context\n  /amux wow           Show/edit team Ways of Working\n  /amux prompt        Preview the amux coordination block for this agent\n  /amux status set    Set your availability\n  /amux workspace     Git workspace setup and sync`,
+      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}\n\nCanonical:\n  /amux project       Vision, WoW, roles/templates\n  /amux team          Agents, availability, workspaces\n  /amux work          Progress and backlog views\n  /amux prompt        Prompt/debug preview\n\nShortcuts:\n  /amux join          Switch project or agent\n  /amux leave         Leave project\n  /amux progress      Alias for /amux work\n  /amux show <id>     Alias for /amux work show <id>`,
+      "info"
+    );
+  }
+
+  async function handleWork(args: string[], ctx: ExtensionContext): Promise<void> {
+    const sub = args[0] || "summary";
+    if (sub === "summary" || sub === "progress") return handleProgress(ctx);
+    if (sub === "show") return handleShow(args.slice(1), ctx);
+    ctx.ui.notify(
+      `Usage:\n  /amux work                 Progress overview\n  /amux work show <ITEM-ID>  Backlog item details\n\nShortcuts: /amux progress, /amux show <ITEM-ID>`,
+      "info"
+    );
+  }
+
+  async function handleTeam(args: string[], ctx: ExtensionContext): Promise<void> {
+    const sub = args[0] || "status";
+    switch (sub) {
+      case "status":
+        if (args[1] === "set") return handleStatusSet(args.slice(2), ctx);
+        return handleStatus(ctx);
+      case "join": return handleJoin(args.slice(1).join(" "), ctx);
+      case "leave": return handleLeave(ctx);
+      case "workspace": return handleWorkspace(ctx);
+      case "status-set": return handleStatusSet(args.slice(1), ctx);
+      case "new":
+        if (args[1] === "agent") return handleNew(["agent", ...args.slice(2)], ctx);
+        break;
+    }
+    ctx.ui.notify(
+      `Usage:\n  /amux team                 Team status\n  /amux team join [project]  Join project/agent\n  /amux team leave           Leave project\n  /amux team workspace       Git workspace setup/sync\n  /amux team new agent ...   Create an agent\n  /amux team status set <idle|working|focus|away> [message]\n\nShortcuts: /amux join, /amux leave, /amux status set, /amux workspace`,
       "info"
     );
   }
@@ -1036,8 +1070,18 @@ export default function (pi: ExtensionAPI) {
 
   async function handleProject(args: string[], ctx: ExtensionContext): Promise<void> {
     const sub = args[0] || "show";
-    if (sub === "vision") {
+    if (sub === "vision" || sub === "context") {
       return handleContext(args.slice(1), ctx);
+    }
+    if (sub === "wow") {
+      return handleWow(args.slice(1), ctx);
+    }
+    if (sub === "help") {
+      ctx.ui.notify(
+        `Usage:\n  /amux project                  Show project vision/context\n  /amux project vision ...       Manage vision/context\n  /amux project wow ...          Manage Ways of Working\n\nShortcuts: /amux wow, /amux project context ...`,
+        "info"
+      );
+      return;
     }
     return handleContext(args, ctx);
   }

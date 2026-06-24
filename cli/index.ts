@@ -7,10 +7,12 @@
  */
 
 import { readBacklog } from "../core/backlog.ts";
-import { readRegistry, isEffectivelyOnline } from "../core/registry.ts";
+import { readRegistry, readRoles, isEffectivelyOnline } from "../core/registry.ts";
 import { renderProgressSummary, renderTaskDetails, renderTaskListRow } from "../core/renderers.ts";
 import { serviceGetTaskShowData } from "../core/task-service.ts";
 import { listSessions } from "../core/storage.ts";
+import { readProjectContext } from "../core/project-context.ts";
+import { readWaysOfWorking } from "../core/ways-of-working.ts";
 
 // ─── Arg Parsing ─────────────────────────────────────────────
 
@@ -64,11 +66,15 @@ function printHelp(): void {
 Usage: amux <command> [--session <name>]
 
 Commands:
-  progress              Project progress overview
-  show <ITEM-ID>        Item details with comments and spec preview
+  work                  Project progress overview
+  work show <ITEM-ID>   Item details with comments and spec preview
+  team                  Online agents and availability
+  project               Project vision/WoW/role overview
   list                  Backlog listing
   task list             Backlog listing (explicit task namespace)
-  status                Online agents and availability
+  progress              Alias for work
+  show <ITEM-ID>        Alias for work show
+  status                Alias for team
   help                  Show this help
 
 Options:
@@ -91,8 +97,27 @@ async function main(): Promise<void> {
       break;
     }
 
-    case "progress": {
+    case "progress":
+    case "work": {
       const s = await requireSession();
+      const sub = cmd === "work" ? positional[1] : undefined;
+      if (sub === "show") {
+        const itemId = positional[2];
+        if (!itemId) {
+          console.error("Usage: amux work show <ITEM-ID> [--session <name>]");
+          process.exit(1);
+        }
+        const data = await serviceGetTaskShowData(s, itemId);
+        console.log(renderTaskDetails(data.task, data.allTasks, {
+          comments: data.comments,
+          specPreview: data.specPreview,
+        }));
+        break;
+      }
+      if (sub && sub !== "summary" && sub !== "progress") {
+        console.error('Usage: amux work [show <ITEM-ID>] [--session <name>]');
+        process.exit(1);
+      }
       const tasks = await readBacklog(s);
       console.log(renderProgressSummary(s, tasks));
       break;
@@ -134,7 +159,8 @@ async function main(): Promise<void> {
       break;
     }
 
-    case "status": {
+    case "status":
+    case "team": {
       const s = await requireSession();
       const registry = await readRegistry(s);
       const agents = Object.values(registry);
@@ -149,6 +175,15 @@ async function main(): Promise<void> {
         const role = a.roleName || a.role;
         console.log(`  ${a.name} (${role}) [${online}${avail}]`);
       }
+      break;
+    }
+
+    case "project": {
+      const s = await requireSession();
+      const context = readProjectContext(s) || "(none)";
+      const wow = readWaysOfWorking(s) || "(none)";
+      const roles = Object.keys(await readRoles(s));
+      console.log(`Project: ${s}\n\nVision/context:\n${context}\n\nWays of Working:\n${wow}\n\nRoles: ${roles.length ? roles.join(", ") : "(none)"}`);
       break;
     }
 

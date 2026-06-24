@@ -71,11 +71,12 @@ import { createAgent, sendMessage, addTask } from "./amux/core/index.ts";
 ### CLI (read-only, phase 1)
 
 ```bash
-amux progress [--session <name>]     # Project progress overview
-amux show <ITEM-ID> [--session <name>]  # Item details + comments
-amux list [--session <name>]          # Backlog listing
-amux task list [--session <name>]     # Backlog listing (explicit namespace)
-amux status [--session <name>]        # Agent availability
+amux work [--session <name>]         # Project progress overview
+amux work show <ITEM-ID> [--session <name>]  # Item details + comments
+amux team [--session <name>]         # Agent availability
+amux project [--session <name>]      # Vision/WoW/role overview
+amux list [--session <name>]         # Backlog listing
+amux progress/show/status            # Compatibility aliases
 amux --help                           # Show available commands
 ```
 
@@ -95,33 +96,7 @@ cd ~/myapp-agent1 && pi
 /amux join            # → select project → select agent → start working
 ```
 
-## Commands
-
-All commands are subcommands of `/amux`:
-
-| Command | Purpose |
-|---------|--------|
-| `/amux` | Status and available commands |
-| `/amux join` | Join a project as an agent |
-| `/amux leave` | Leave project, return to solo mode |
-| `/amux progress` | Project progress overview |
-| `/amux show <ITEM-ID>` | Show backlog item details, comments, parent context, and spec preview |
-| `/amux new <type>` | Create project, agent, or role directly |
-| `/amux project` | Show/set project vision/context |
-| `/amux wow` | Show/set team Ways of Working (WOW.md) |
-| `/amux prompt` | Preview the amux coordination block appended to your system prompt (debug) |
-| `/amux status set` | Set your availability (idle/working/focus/away) |
-| `/amux workspace` | Git workspace operations (sync, status) |
-
-### Shortcuts
-
-```bash
-/amux new project [name] [--repo current|<path>] [--vision <text>]
-/amux new agent [name] [--role <role>] [--workspace worktree|current|none] [--join]
-/amux new role [name]
-```
-
-Missing fields are prompted interactively. New projects get a small default `WOW.md` and prompt for project vision/context because those are the first alignment artifacts for agents.
+[cprune: omitted prior tool-call argument edit.arguments.edits[0].newText; 1952 chars; hash=efc60b561f2fc8b4; preview="## Commands amux has five command surfaces: | Surface | Purpose | Examples | |---------|---------|----------| | Project | Alignment artifacts: vision, WoW, roles/templates | `/amux project`, `/amux project vision set ...`, `/amux project wow ...` | | Team | Agents, roles, availability"]
 
 ### Project Vision / Context
 
@@ -132,6 +107,7 @@ Missing fields are prompted interactively. New projects get a small default `WOW
 /amux project vision edit             # Open editor to edit CONTEXT.md
 /amux project vision clear            # Clear project vision/context
 /amux project vision path             # Print CONTEXT.md file path
+/amux project wow ...                 # Manage Ways of Working (also available as /amux wow)
 ```
 
 Project vision/context is stored in `artifacts/project/CONTEXT.md` and auto-injected into agent prompts. Prefer `/amux project vision ...` or the `amux_project` tool over direct file edits.
@@ -164,15 +140,17 @@ amux **appends** a coordination block to the host agent runtime's base system pr
 Task assignments are **state-derived** — agents discover their tasks from the current backlog, not from queued inbox messages. This ensures task context is always current and never stale.
 
 ```bash
-# View task details + comment history
-/amux show TASK-01
+# View compact task details
+/amux work show TASK-01
+/amux show TASK-01        # shortcut
 amux_task({ action: "show", id: "TASK-01" })
 
 # Add a task-scoped comment (like PR comments)
 amux_task({ action: "comment", id: "TASK-01", content: "Looks good, one suggestion..." })
 
 # Compact project progress overview
-/amux progress
+/amux work
+/amux progress            # shortcut
 amux_task({ action: "summary" })
 amux_task({ action: "archive" })   # Move done items out of the active backlog
 ```
