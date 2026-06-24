@@ -75,10 +75,6 @@ export function planTaskCommentNotifications(
       recipientName: r.name,
       shouldSignal,
       message: {
-        from: args.senderId,
-        fromName: args.senderName,
-        fromRole: args.senderRole,
-        fromSession: args.senderSession,
         message: taskCommentNotificationMessage({
           taskId: args.task.id,
           taskTitle: args.task.title,
@@ -127,10 +123,6 @@ export function planDiscussionNotifications(
     recipientName: t.name,
     shouldSignal: true,  // discussion activity always signals
     message: {
-      from: args.senderId,
-      fromName: args.senderName,
-      fromRole: args.senderRole,
-      fromSession: args.senderSession,
       message: discussionNotificationMessage({
         action: args.action,
         discussionId: args.discussion.id,
@@ -180,7 +172,8 @@ export interface NotificationSender {
  * Execute notification plans: flag recipients for attention (when shouldSignal)
  * and deliver a pre-built inbox message to each recipient. Framework-neutral —
  * calls the core messaging/registry functions directly. The adapter supplies
- * the sender identity (the agent executing the tool).
+ * the sender identity (the agent executing the tool), while plans supply only
+ * message body/metadata.
  *
  * `senderTimestamp` overrides the message timestamp (used when replaying a
  * stored event timestamp, e.g. a task comment's creation time).
@@ -202,6 +195,6 @@ export async function deliverNotificationPlans(
       fromSession: sender.session,
       timestamp: senderTimestamp || new Date().toISOString(),
       ...plan.message,
-    } as InboxMessage);
+    });
   }
 }
