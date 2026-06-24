@@ -215,7 +215,8 @@ export function taskCommentNotificationMessage(args: {
   preview: string;
 }): string {
   const title = args.taskTitle ? ` (${args.taskTitle})` : "";
-  return `Comment added on ${args.taskId}${title} by ${args.authorName}: “${args.preview}”\nRun amux_task show ${args.taskId} for full context.`;
+  const preview = messagePreview(args.preview, 180);
+  return `Comment added on ${args.taskId}${title} by ${args.authorName}: “${preview}”\nRun amux_task show ${args.taskId} for a compact projection; pass full:true only if you need the full thread.`;
 }
 
 export function assignmentNotificationMessage(tasks: Array<{ id: string; title: string }>): string {
@@ -235,14 +236,14 @@ export function discussionNotificationMessage(args: {
   preview?: string;
 }): string {
   if (args.action === "started") {
-    return `Discussion ${args.discussionId} started by ${args.authorName}: “${args.topic}”\nRun amux_discussion show ${args.discussionId} to participate.`;
+    return `Discussion ${args.discussionId} started by ${args.authorName}: “${messagePreview(args.topic, 180)}”\nRun amux_discussion show ${args.discussionId} to participate.`;
   }
   if (args.action === "closed") {
-    const summary = args.preview ? ` Summary: “${args.preview}”` : "";
-    return `Discussion ${args.discussionId} closed by ${args.authorName}: “${args.topic}”.${summary}\nRun amux_discussion show ${args.discussionId} for the outcome and thread.`;
+    const summary = args.preview ? ` Summary: “${messagePreview(args.preview, 180)}”` : "";
+    return `Discussion ${args.discussionId} closed by ${args.authorName}: “${messagePreview(args.topic, 180)}”.${summary}\nRun amux_discussion show ${args.discussionId} for the outcome and thread.`;
   }
-  const preview = args.preview ? ` “${args.preview}”` : "";
-  return `Post added to discussion ${args.discussionId} by ${args.authorName}: “${args.topic}”.${preview}\nRun amux_discussion show ${args.discussionId} for full context.`;
+  const preview = args.preview ? ` “${messagePreview(args.preview, 180)}”` : "";
+  return `Post added to discussion ${args.discussionId} by ${args.authorName}: “${messagePreview(args.topic, 180)}”.${preview}\nRun amux_discussion show ${args.discussionId} only if you need more context.`;
 }
 
 export async function createPendingReply(

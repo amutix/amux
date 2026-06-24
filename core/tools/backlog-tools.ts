@@ -85,6 +85,8 @@ interface TaskParams {
   content?: string;
   notify?: boolean;
   silent?: boolean;
+  /** For list/show: opt into verbose summaries, spec previews, and full comment/activity history. Defaults false. */
+  full?: boolean;
   // list
   status?: string;
 }
@@ -138,7 +140,10 @@ async function executeList(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToo
   }
   const lines = filtered.map((t) => {
     const pos = tasks.indexOf(t) + 1;
-    return renderTaskListRow(t, tasks, pos, ctx.agentId);
+    return renderTaskListRow(t, tasks, pos, ctx.agentId, {
+      includeSummaries: p.full === true,
+      includeFiles: p.full === true,
+    });
   });
   return {
     text: `Backlog (${filtered.length} task${filtered.length !== 1 ? "s" : ""}):\n\n${lines.join("\n")}`,
@@ -149,12 +154,22 @@ async function executeList(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToo
 async function executeShow(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
   if (!p.id) throw new Error("Task ID is required for show.");
   const data = await serviceGetTaskShowData(ctx.session, p.id);
+  const full = p.full === true;
   const text = renderTaskDetails(data.task, data.allTasks, {
     currentAgentId: ctx.agentId,
     comments: data.comments,
     specPreview: data.specPreview,
+    full,
+    suppressOwnContent: true,
   });
-  return { text, details: { task: data.task, comments: data.comments } };
+  const substantiveCount = data.comments.filter((c) => c.type === "comment").length;
+  const activityCount = data.comments.filter((c) => c.type === "activity").length;
+  return {
+    text,
+    details: full
+      ? { task: data.task, comments: data.comments }
+      : { task: data.task, commentCount: substantiveCount, activityCount },
+  };
 }
 
 async function executeComment(ctx: AmuxToolContext, p: TaskParams): Promise<AmuxToolResult> {
@@ -331,7 +346,7 @@ export const taskTool: AmuxToolDefinition<TaskParams> = {
     "Use dependsOn when adding an item that should wait for other items to complete.",
     "Pass comma-separated IDs to assign multiple items in one state update.",
     "Only the assignee can review/drop/block an assigned item; review items can be completed by a reviewer.",
-    "Use 'show' to view item details, parent context, linked spec preview, and comment history.",
+    "Use 'show' for a compact task projection by default; pass full:true only when you need full spec preview and complete comment/activity history.",
     "Use 'plan' and 'edit-plan' for first-class task-linked specs/checklists instead of ad-hoc project artifacts.",
     "Use 'comment' for task-scoped discussion  -- prefer over amux_send for task-related topics. Comments notify relevant task subscribers by default; set notify:false or silent:true for quiet notes.",
     "Use 'archive' to move done items that are no longer needed for ongoing implementation out of the active backlog.",
@@ -364,6 +379,7 @@ export const taskTool: AmuxToolDefinition<TaskParams> = {
       content: optionalStringProp("Comment text (for comment), or markdown spec content (for plan)"),
       notify: optionalBoolProp("For comment: notify task subscribers (default true). Set false for silent comments."),
       silent: optionalBoolProp("For comment: if true, do not notify task subscribers."),
+      full: optionalBoolProp("For list/show: opt into verbose summaries, spec preview, and full comment/activity history. Default false keeps output compact."),
       // list
       status: { type: "string", description: "Filter by status: todo, assigned, in-progress, review, done, blocked", enum: [...TASK_STATUSES] },
     },

@@ -14,6 +14,7 @@ import {
   readJsonlSync,
   appendJsonlSync,
   formatTimestamp,
+  truncatePreview,
 } from "./storage.ts";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -89,4 +90,14 @@ export function formatEntry(entry: JournalEntry): string {
   const date = formatTimestamp(entry.timestamp);
   const ctx = entry.context ? ` [${entry.context}]` : "";
   return `[${date}] ${entry.agent} (${entry.type})${ctx}: ${entry.content}`;
+}
+
+/**
+ * Compact single-line journal projection for prompt injection.
+ * Keeps the durable entry retrievable while avoiding repeated long prose.
+ */
+export function formatEntryPreview(entry: JournalEntry, maxLength = 180): string {
+  const date = formatTimestamp(entry.timestamp);
+  const ctx = entry.context ? ` [${entry.context}]` : "";
+  return `[${date}] ${entry.agent} (${entry.type})${ctx}: ${truncatePreview(entry.content, maxLength)}`;
 }

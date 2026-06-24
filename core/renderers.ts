@@ -10,6 +10,7 @@ import type { BacklogItem } from "./backlog.ts";
 import type { TaskComment } from "./task-comments.ts";
 import { unmetDependencies } from "./backlog.ts";
 import { formatTaskComment } from "./task-comments.ts";
+import { formatTimestamp, truncatePreview } from "./storage.ts";
 
 // ─── Utilities ───────────────────────────────────────────────
 
@@ -118,11 +119,19 @@ export function renderAgentPresence(
  * Render a single backlog item as a compact list row.
  * Used by `amux_task list`.
  */
+export interface RenderTaskListRowOptions {
+  /** Include verbose done/review summaries. Default false to keep lists projection-sized. */
+  includeSummaries?: boolean;
+  /** Include file lists. Default false; detailed file context belongs in show/full. */
+  includeFiles?: boolean;
+}
+
 export function renderTaskListRow(
   task: BacklogItem,
   allTasks: BacklogItem[],
   position: number,
   currentAgentId?: string,
+  options: RenderTaskListRowOptions = {},
 ): string {
   const assigneeStr = task.assignee
     ? task.status === "assigned"
@@ -131,7 +140,7 @@ export function renderTaskListRow(
     : "";
   const isMe = currentAgentId && task.assigneeId === currentAgentId;
   const meMarker = isMe ? " (you)" : "";
-  const filesStr = task.files?.length
+  const filesStr = options.includeFiles && task.files?.length
     ? `\n                              Files: ${task.files.join(", ")}` : "";
   const depsStr = task.dependsOn?.length
     ? (() => {
@@ -142,7 +151,7 @@ export function renderTaskListRow(
     : "";
   const blockedStr = task.status === "blocked" && task.blockedReason
     ? `\n                              Blocked: ${task.blockedReason}` : "";
-  const summaryStr = task.summary && (task.status === "done" || task.status === "review")
+  const summaryStr = options.includeSummaries && task.summary && (task.status === "done" || task.status === "review")
     ? `\n                              ${task.status === "review" ? "Review handoff" : "Summary"}: ${task.summary}` : "";
   const doneTime = task.status === "done" && task.completedAt
     ? ` (${formatDuration(Date.now() - new Date(task.completedAt).getTime())} ago)` : "";
@@ -158,6 +167,10 @@ export interface RenderTaskOptions {
   currentAgentId?: string;
   comments?: TaskComment[];
   specPreview?: string | null;
+  /** Explicitly render full spec preview and full comment/activity history. Default false. */
+  full?: boolean;
+  /** Suppress long content authored by this agent (review handoffs/comments) in compact mode. */
+  suppressOwnContent?: boolean;
 }
 
 /**
@@ -188,13 +201,20 @@ export function renderTaskDetails(
   }
   if (task.files?.length) text += `\nFiles: ${task.files.join(", ")}`;
   if (task.blockedReason) text += `\nBlocked: ${task.blockedReason}`;
+  const compact = !options.full;
+  const suppressOwnSummary = compact && options.suppressOwnContent && options.currentAgentId && task.assigneeId === options.currentAgentId;
   if (task.status === "review") {
-    text += task.summary
-      ? `\nReview handoff: ${task.summary}`
-      : `\nReview handoff: (none yet — include commit/branch, diff summary, tests run, and known risks)`;
+    if (task.summary && !suppressOwnSummary) {
+      const summary = compact ? truncatePreview(task.summary, 420) : task.summary;
+      text += `\nReview handoff: ${summary}`;
+    } else if (task.summary && suppressOwnSummary) {
+      text += `\nReview handoff: (authored by you; hidden in compact view)`;
+    } else {
+      text += `\nReview handoff: (none yet — include commit/branch, diff summary, tests run, and known risks)`;
+    }
     text += `\nReviewer workflow: read spec → inspect diff → inspect tests → comment or mark done.`;
   } else if (task.summary) {
-    text += `\nSummary: ${task.summary}`;
+    text += compact ? `\nSummary: ${truncatePreview(task.summary, 240)}` : `\nSummary: ${task.summary}`;
   }
   text += `\nCreated: ${task.createdAt} by ${task.createdBy}`;
   if (task.completedAt) text += `\nCompleted: ${task.completedAt}`;
@@ -202,15 +222,38 @@ export function renderTaskDetails(
   // Spec preview
   if (task.specPath) {
     text += `\nSpec: ${task.specPath}`;
-    if (options.specPreview) text += `\n\n${options.specPreview}`;
+    if (options.full && options.specPreview) {
+      text += `\n\n${options.specPreview}`;
+    } else if (!options.full && options.specPreview) {
+      text += `\nSpec preview hidden in compact view. Use amux_task show with full:true for the full preview.`;
+    }
   }
 
-  // Comments
+  // Comments/activity projection
   const comments = options.comments || [];
   if (comments.length > 0) {
-    text += `\n\n\u2500\u2500 Comments (${comments.length}) \u2500\u2500`;
-    for (const c of comments) {
-      text += `\n${formatTaskComment(c)}`;
+    if (options.full) {
+      text += `\n\n\u2500\u2500 Comments (${comments.length}) \u2500\u2500`;
+      for (const c of comments) {
+        text += `\n${formatTaskComment(c)}`;
+      }
+    } else {
+      const substantive = comments.filter((c) => c.type === "comment");
+      const activity = comments.filter((c) => c.type === "activity");
+      const visibleSubstantive = options.suppressOwnContent && options.currentAgentId
+        ? substantive.filter((c) => c.agentId !== options.currentAgentId)
+        : substantive;
+      text += `\n\n\u2500\u2500 Discussion projection \u2500\u2500`;
+      text += `\nSubstantive comments: ${substantive.length}${visibleSubstantive.length !== substantive.length ? ` (${substantive.length - visibleSubstantive.length} authored by you hidden)` : ""}.`;
+      const latest = visibleSubstantive.at(-1);
+      if (latest) {
+        text += `\nLatest from ${latest.agent} at ${formatTimestamp(latest.timestamp)}: “${truncatePreview(latest.text, 220)}”`;
+      }
+      if (activity.length > 0) {
+        const last = activity.at(-1)!;
+        text += `\nActivity: ${activity.length} lifecycle event${activity.length !== 1 ? "s" : ""}; last ${formatTimestamp(last.timestamp)}: ${truncatePreview(last.text, 120)}`;
+      }
+      text += `\nFull thread: amux_task show ${task.id} full:true`;
     }
   } else {
     text += `\n\nNo comments yet. Use amux_task with action "comment" to add one.`;

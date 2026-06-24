@@ -47,7 +47,7 @@ import {
 } from "./registry.ts";
 import { renderAgentPresence } from "./renderers.ts";
 import { getReservations, formatReservationAge } from "./reservations.ts";
-import { getRecentEntries, formatEntry } from "./journal.ts";
+import { getRecentEntries, formatEntryPreview } from "./journal.ts";
 import { openDiscussionSummaries } from "./discussions.ts";
 import { sessionFile } from "./storage.ts";
 
@@ -244,10 +244,10 @@ export async function gatherAgentPromptSections(
       teamContext += `${teamContext ? "\n\n" : ""}${snapshot}`;
     }
 
-    const recentJournal = getRecentEntries(session);
+    const recentJournal = getRecentEntries(session, 6);
     if (recentJournal.length > 0) {
-      const journalLines = recentJournal.map((e) => `- ${formatEntry(e)}`);
-      teamContext += `${teamContext ? "\n\n" : ""}## Recent Journal\n${journalLines.join("\n")}`;
+      const journalLines = recentJournal.map((e) => `- ${formatEntryPreview(e, 180)}`);
+      teamContext += `${teamContext ? "\n\n" : ""}## Recent Journal (compact, last ${recentJournal.length})\n${journalLines.join("\n")}\nFull journal bodies are pull-based via amux_journal list.`;
     }
   }
 

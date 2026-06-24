@@ -171,6 +171,7 @@ import {
   appendEntry,
   readEntries,
   getRecentEntries,
+  formatEntryPreview,
 } from "../core/journal.ts";
 import {
   projectContextPath,
@@ -425,10 +426,11 @@ describe("Messaging (crash-safe)", () => {
       taskCommentNotificationMessage({ taskId: "TASK-02", taskTitle: "Review API", authorName: "Lead", preview: "Please check error handling." }),
       /Comment added on TASK-02 \(Review API\) by Lead/,
     );
-    assert.match(
-      discussionNotificationMessage({ action: "post", discussionId: "DISC-01", topic: "Retro", authorName: "Developer", preview: "One risk is prompt bloat." }),
-      /Post added to discussion DISC-01 by Developer/,
-    );
+    const longPreview = "x".repeat(400);
+    const discussion = discussionNotificationMessage({ action: "post", discussionId: "DISC-01", topic: "Retro", authorName: "Developer", preview: longPreview });
+    assert.match(discussion, /Post added to discussion DISC-01 by Developer/);
+    assert.ok(discussion.length < 320);
+    assert.equal(discussion.includes(longPreview), false);
   });
 });
 
@@ -606,6 +608,20 @@ describe("Journal", () => {
     const window = getRecentEntries(session, 10);
     assert.equal(window.length, 10);
     assert.equal(window[0]!.content, "Entry 5");
+  });
+
+  it("formats compact prompt previews without full prose", () => {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      agent: "Test", agentId: "id",
+      type: "progress" as const,
+      context: "LONG",
+      content: "x".repeat(500),
+    };
+    const preview = formatEntryPreview(entry, 80);
+    assert.ok(preview.includes("[LONG]"));
+    assert.ok(preview.length < 170);
+    assert.equal(preview.includes(entry.content), false);
   });
 });
 
@@ -2233,9 +2249,13 @@ describe("Renderer functions", () => {
       timestamp: now, agent: "Alice", agentId: "a1",
       type: "comment", text: "Looks good!",
     }];
-    const text = renderTaskDetails(baseItem(), [], { comments });
+    const text = renderTaskDetails(baseItem(), [], { comments, full: true });
     assert.ok(text.includes("Comments (1)"));
     assert.ok(text.includes("Looks good!"));
+
+    const compact = renderTaskDetails(baseItem(), [], { comments });
+    assert.ok(compact.includes("Discussion projection"));
+    assert.ok(compact.includes("Substantive comments: 1"));
   });
 
   it("renderTaskDetails shows review handoff guidance", () => {
@@ -2244,17 +2264,21 @@ describe("Renderer functions", () => {
       specPath: "tasks/TASK-01.md",
       summary: "Commit abc123. Diff: auth parser. Tests: npm test.",
     });
-    const text = renderTaskDetails(task, [], { specPreview: "## Acceptance\nPass tests" });
+    const text = renderTaskDetails(task, [], { specPreview: "## Acceptance\nPass tests", full: true });
     assert.ok(text.includes("Review handoff"));
     assert.ok(text.includes("Commit abc123"));
     assert.ok(text.includes("Reviewer workflow"));
     assert.ok(text.includes("Spec: tasks/TASK-01.md"));
     assert.ok(text.includes("Pass tests"));
+
+    const compact = renderTaskDetails(task, [], { specPreview: "## Acceptance\nPass tests" });
+    assert.ok(compact.includes("Spec preview hidden in compact view"));
+    assert.equal(compact.includes("Pass tests"), false);
   });
 
   it("renderTaskDetails shows spec preview", () => {
     const task = baseItem({ specPath: "tasks/TASK-01.md" });
-    const text = renderTaskDetails(task, [], { specPreview: "## Objective\nBuild auth" });
+    const text = renderTaskDetails(task, [], { specPreview: "## Objective\nBuild auth", full: true });
     assert.ok(text.includes("Spec: tasks/TASK-01.md"));
     assert.ok(text.includes("Build auth"));
   });
@@ -3563,10 +3587,15 @@ describe("Neutral task tool (SPEC-18 Slice 5)", () => {
     assert.equal((result.details as { task: { status: string } }).task.status, "done");
   });
 
-  it("show renders task details and comments", async () => {
+  it("show defaults to compact projection and full:true renders complete comments", async () => {
     const result = await taskTool.execute(leadCtx, { action: "show", id: assignedId });
     assert.ok(result.text.includes("Implement feature X"));
-    assert.ok(result.text.includes("Found an edge case") || result.text.includes("quiet note"));
+    assert.ok(result.text.includes("Discussion projection"));
+    assert.equal(result.text.includes("Comments ("), false);
+
+    const full = await taskTool.execute(leadCtx, { action: "show", id: assignedId, full: true });
+    assert.ok(full.text.includes("Comments ("));
+    assert.ok(full.text.includes("Found an edge case") || full.text.includes("quiet note"));
   });
 
   it("block requires a reason", async () => {
