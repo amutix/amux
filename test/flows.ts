@@ -424,15 +424,15 @@ describe("Messaging (crash-safe)", () => {
   it("formats descriptive notification messages", () => {
     assert.match(
       assignmentNotificationMessage([{ id: "TASK-01", title: "Implement parser" }]),
-      /Assigned to you: TASK-01 — Implement parser/,
+      /Assigned: TASK-01 — Implement parser/,
     );
     assert.match(
       taskCommentNotificationMessage({ taskId: "TASK-02", taskTitle: "Review API", authorName: "Lead", preview: "Please check error handling." }),
-      /Comment added on TASK-02 \(Review API\) by Lead/,
+      /Comment on TASK-02 \(Review API\) by Lead/,
     );
     const longPreview = "x".repeat(400);
     const discussion = discussionNotificationMessage({ action: "post", discussionId: "DISC-01", topic: "Retro", authorName: "Developer", preview: longPreview });
-    assert.match(discussion, /Post added to discussion DISC-01 by Developer/);
+    assert.match(discussion, /Discussion DISC-01 post by Developer/);
     assert.ok(discussion.length < 320);
     assert.equal(discussion.includes(longPreview), false);
   });
@@ -1631,7 +1631,7 @@ describe("Task-scoped comments", () => {
     assert.equal(plans.length, 1);
     assert.equal(plans[0]!.recipientName, "Developer");
     assert.equal(plans[0]!.shouldSignal, true);
-    assert.match(plans[0]!.message.message, /Comment added on TASK-01 \(Notify\) by Author/);
+    assert.match(plans[0]!.message.message, /Comment on TASK-01 \(Notify\) by Author/);
     assert.equal(plans[0]!.message.notificationType, "task-comment");
     assert.equal(plans[0]!.message.commentId, "c1");
   });
@@ -1654,7 +1654,7 @@ describe("Setup/workspace helpers", () => {
     const target: AgentInfo = { id: "dev", name: "Developer", session: "setup", role: "dev", cwd: "/tmp", pid: 1, status: "online", registeredAt: now, lastHeartbeat: now };
     const plan = planAssignmentNotification(target, [{ id: "TASK-01", title: "Build it" }]);
     assert.equal(plan.recipientName, "Developer");
-    assert.match(plan.message.message, /Assigned to you: TASK-01 — Build it/);
+    assert.match(plan.message.message, /Assigned: TASK-01 — Build it/);
     assert.equal(plan.message.requiresAttention, true);
   });
 });
@@ -4339,7 +4339,7 @@ describe("Discussions: audience mode and participant resolution", () => {
     assert.equal(plans[0]!.recipientName, "Developer");
     assert.equal(plans[0]!.message.category, "brainstorm");
     assert.equal(plans[0]!.message.notificationType, "discussion-post");
-    assert.match(plans[0]!.message.message, /Post added to discussion DISC-01 by Lead/);
+    assert.match(plans[0]!.message.message, /Discussion DISC-01 post by Lead/);
   });
 });
 

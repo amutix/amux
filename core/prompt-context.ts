@@ -160,7 +160,7 @@ export async function gatherAgentPromptSections(
         .map((t) => formatTaskDiscussionPromptSummary(t.id, readTaskComments(session, t.id)))
         .filter((summary) => summary.length > 0)
         .map((summary) => `  - ${summary.replace(/\n/g, "\n    ")}`);
-      workState += `${workState ? "\n\n" : ""}## Ready for Review (${review.length})\n  ${ids}\n\nThese are implemented and waiting for review/integration. Use amux_task show for full context and amux_task comment for review discussion.`;
+      workState += `${workState ? "\n\n" : ""}## Ready for Review (${review.length})\n  ${ids}\n\nReview/integrate; use amux_task show only when needed and comment for review discussion.`;
       if (reviewSummaries.length > 0) {
         workState += `\n\nLatest review discussion preview:\n${reviewSummaries.join("\n")}`;
       }
@@ -168,7 +168,7 @@ export async function gatherAgentPromptSections(
 
     if (assigned.length > 0) {
       const ids = assigned.map((t) => `${t.id}: ${t.title}`).join("\n  ");
-      workState += `${workState ? "\n\n" : ""}## Assigned Tasks (${assigned.length})\n  ${ids}\n\nUse amux_task show <id> for details, or amux_task pick <id> to start working.`;
+      workState += `${workState ? "\n\n" : ""}## Assigned Tasks (${assigned.length})\n  ${ids}\n\nPick to start; show only when details are needed.`;
     }
 
     const pendingReplies = await readPendingReplies(session, id);
@@ -177,7 +177,7 @@ export async function gatherAgentPromptSections(
         const task = p.taskId ? ` ${p.taskId}` : "";
         return `- ${p.id}${task} to ${formatAddress(p.toSession, p.toName)} (${formatMessageAge(p.createdAt)}): ${p.messagePreview}`;
       });
-      workState += `${workState ? "\n\n" : ""}## Pending Replies (${pendingReplies.length})\n${lines.join("\n")}\n\nThese direct messages requested a response. Follow up or mark them answered by replying with amux_send inReplyTo.`;
+      workState += `${workState ? "\n\n" : ""}## Pending Replies (${pendingReplies.length})\n${lines.join("\n")}\n\nReply with amux_send inReplyTo to close.`;
     }
   }
 
@@ -195,7 +195,7 @@ export async function gatherAgentPromptSections(
       teamContext += `## Team`;
       if (projectAgents.length > 0) {
         const list = projectAgents.map((a) => renderAgentPresence(a, backlog)).join("\n");
-        teamContext += `\n\nSame-session agents (address as "${session}/<name>" or just "<name>"):\n${list}`;
+        teamContext += `\n\nSame-session agents:\n${list}`;
       }
       if (crossSessionAgents.length > 0) {
         const backlogBySession = new Map<string, BacklogItem[]>();
@@ -208,9 +208,9 @@ export async function gatherAgentPromptSections(
             address: formatAddress(crossAgent.session, crossAgent.name),
           }));
         }
-        teamContext += `\nCross-session agents (must use full address "session/name"):\n${lines.join("\n")}`;
+        teamContext += `\nCross-session agents (use session/name):\n${lines.join("\n")}`;
       }
-      teamContext += `\n\n### Addressing\n- Same-session agents: use just the name (e.g., "backend") or full address ("${session}/backend")\n- Cross-session agents: always use the full address ("othersession/agentname")`;
+      teamContext += `\n\nAddressing: same-session name is enough; cross-session uses session/name.`;
     }
 
     const activeStatuses = ["todo", "assigned", "in-progress", "review", "blocked"];
@@ -247,7 +247,7 @@ export async function gatherAgentPromptSections(
     const recentJournal = getRecentEntries(session, 6);
     if (recentJournal.length > 0) {
       const journalLines = recentJournal.map((e) => `- ${formatEntryPreview(e, 180)}`);
-      teamContext += `${teamContext ? "\n\n" : ""}## Recent Journal (compact, last ${recentJournal.length})\n${journalLines.join("\n")}\nFull journal bodies are pull-based via amux_journal list.`;
+      teamContext += `${teamContext ? "\n\n" : ""}## Recent Journal (compact, last ${recentJournal.length})\n${journalLines.join("\n")}\nFull bodies: amux_journal list.`;
     }
   }
 
