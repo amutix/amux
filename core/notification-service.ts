@@ -8,6 +8,8 @@
 
 import {
   type InboxMessage,
+  sendToInbox,
+  newMessageId,
   taskCommentNotificationMessage,
   discussionNotificationMessage,
   assignmentNotificationMessage,
@@ -15,7 +17,7 @@ import {
 import { resolveTaskCommentSubscribers, taskCommentPreview, type TaskComment } from "./task-comments.ts";
 import { type BacklogItem } from "./backlog.ts";
 import { type Discussion, postPreview } from "./discussions.ts";
-import { type AgentInfo, shouldSignalAgent } from "./registry.ts";
+import { type AgentInfo, shouldSignalAgent, updateAgent } from "./registry.ts";
 
 // ─── Plan Type ────────────────────────────────────────────────
 
@@ -162,4 +164,44 @@ export function planAssignmentNotification(
       requiresAttention: true,
     },
   };
+}
+
+// ─── Delivery ────────────────────────────────────────────────
+
+/** Sender identity supplied by the adapter (the agent executing the tool). */
+export interface NotificationSender {
+  id: string;
+  name: string;
+  roleName?: string;
+  session: string;
+}
+
+/**
+ * Execute notification plans: flag recipients for attention (when shouldSignal)
+ * and deliver a pre-built inbox message to each recipient. Framework-neutral —
+ * calls the core messaging/registry functions directly. The adapter supplies
+ * the sender identity (the agent executing the tool).
+ *
+ * `senderTimestamp` overrides the message timestamp (used when replaying a
+ * stored event timestamp, e.g. a task comment's creation time).
+ */
+export async function deliverNotificationPlans(
+  plans: NotificationPlan[],
+  sender: NotificationSender,
+  senderTimestamp?: string,
+): Promise<void> {
+  for (const plan of plans) {
+    if (plan.shouldSignal) {
+      await updateAgent(plan.recipientSession, plan.recipientId, { attentionPending: true });
+    }
+    sendToInbox(plan.recipientSession, plan.recipientId, {
+      id: newMessageId(),
+      from: sender.id,
+      fromName: sender.name,
+      fromRole: sender.roleName,
+      fromSession: sender.session,
+      timestamp: senderTimestamp || new Date().toISOString(),
+      ...plan.message,
+    } as InboxMessage);
+  }
 }

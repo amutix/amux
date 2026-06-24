@@ -31,6 +31,7 @@ import {
   truncatePreview,
   formatTimestamp,
 } from "./storage.ts";
+import { readRegistry, type AgentInfo } from "./registry.ts";
 import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
 
@@ -607,4 +608,64 @@ function withCreatorIncluded(
 /** Compact preview of post content, for notifications. */
 export function postPreview(content: string, maxLength = 160): string {
   return truncatePreview(content, maxLength);
+}
+
+// ─── Participant resolution (registry-backed) ───────────────
+
+/**
+ * Snapshot all registered agents in a session as channel participants.
+ * Used by the discussion `start` action to seed the participant list for
+ * audience="all" discussions.
+ */
+export async function discussionParticipantsForSession(
+  session: string,
+): Promise<ChannelParticipant[]> {
+  const registry = await readRegistry(session);
+  return Object.values(registry).map((agent: AgentInfo) => ({
+    session,
+    id: agent.id,
+    name: agent.name,
+    role: agent.roleName || agent.role,
+  }));
+}
+
+/**
+ * Resolve participant inputs (names or IDs) to channel participants within
+ * a single session. Cross-session inputs are rejected (not yet supported).
+ * Throws if any input cannot be resolved.
+ */
+export async function resolveDiscussionParticipantInputs(
+  session: string,
+  inputs: string[],
+): Promise<ChannelParticipant[]> {
+  const registry = await readRegistry(session);
+  const byName = new Map(Object.values(registry).map((agent: AgentInfo) => [agent.name.toLowerCase(), agent]));
+  const byId = new Map(Object.values(registry).map((agent: AgentInfo) => [agent.id, agent]));
+  const resolved: ChannelParticipant[] = [];
+  const missing: string[] = [];
+
+  for (const input of inputs) {
+    const trimmed = input.trim();
+    if (!trimmed) continue;
+    if (trimmed.includes("/")) {
+      missing.push(`${input} (cross-session participants are not supported yet)`);
+      continue;
+    }
+    const agent = byId.get(trimmed) || byName.get(trimmed.toLowerCase());
+    if (!agent) {
+      missing.push(input);
+      continue;
+    }
+    resolved.push({
+      session,
+      id: agent.id,
+      name: agent.name,
+      role: agent.roleName || agent.role,
+    });
+  }
+
+  if (missing.length > 0) {
+    throw new Error(`Discussion participant(s) not found in ${session}: ${missing.join(", ")}`);
+  }
+  return resolved;
 }

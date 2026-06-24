@@ -28,7 +28,6 @@ import {
   type AgentInfo,
   type RoleDefinition,
   readRegistry,
-  readAllRegistries,
   registerAgent,
   updateAgent,
   updateHeartbeat,
@@ -78,7 +77,6 @@ import { allAmuxTools } from "../core/tools/index.ts";
 import { registerAmuxTools, buildAmuxToolContext } from "./tool-adapter.ts";
 import {
   ensureInbox,
-  sendToInbox,
   getRecoverableMessages,
   markAsDelivered,
   confirmDelivered,
@@ -86,10 +84,7 @@ import {
   watchInbox,
   newMessageId,
   formatMessageAge,
-  createPendingReply,
-  markPendingReplyReplied,
   readPendingReplies,
-  messagePreview,
   type InboxMessage,
 } from "../core/messaging";
 import {
@@ -126,7 +121,7 @@ import {
 } from "../core/task-comments";
 import {
   planTaskCommentNotifications,
-  planDiscussionNotifications,
+  deliverNotificationPlans,
   planAssignmentNotification,
   type NotificationPlan,
 } from "../core/notification-service";
@@ -146,21 +141,6 @@ import {
   ensureDefaultWaysOfWorking,
   wowPath,
 } from "../core/ways-of-working";
-import {
-  type ChannelKind,
-  type ChannelAudience,
-  type ChannelParticipant,
-  type Discussion,
-  startDiscussion,
-  postToDiscussion,
-  closeDiscussion,
-  readDiscussion,
-  listDiscussions,
-  renderDiscussion,
-  renderDiscussionList,
-  resolveDiscussionParticipants,
-  normalizeAudience,
-} from "../core/discussions";
 import {
   renderTaskListRow,
   renderTaskDetails,
@@ -661,168 +641,12 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // - amux_list + amux_artifacts + amux_project + amux_wow (neutral registry) ---
-
-  // Registered via the neutral tool registry bridge (pi/tool-adapter.ts).
-  // See allAmuxTools() in core/tools. Schema/result bridging lives there;
-  // tool product logic is framework-neutral in core/tools/*.
-
-  // - amux_send -------------------------------------------------
-
-  pi.registerTool({
-    name: "amux_send",
-    label: "Send to Agent",
-    description:
-      'Send a message to another amux agent. Use "name" for same-session or "session/name" for cross-session. ' +
-      "Delivered to the agent's inbox  -- works even if they're busy or offline. " +
-      "For task-related discussion, prefer amux_task comment instead.",
-    promptSnippet: "Send a message to a amux agent by name or session/name address",
-    promptGuidelines: [
-      "Use amux_send only for exceptional general communication not tied to a backlog item.",
-      "For task-related discussion, use amux_task comment instead  -- comments stay on the task.",
-      'For cross-session agents, use the full address in amux_send: "session/name".',
-      "After using amux_send, do not wait  -- continue with your own work unless you need their response first.",
-      "Set responseRequired when you need a reply; brainstorm messages default to responseRequired unless explicitly set false. Reply to response-required messages with inReplyTo.",
-    ],
-    parameters: Type.Object({
-      to: Type.String({ description: '"name" for same session, or "session/name" for cross-session' }),
-      message: Type.String({ description: "Message or instruction to send" }),
-      category: Type.Optional(
-        StringEnum(["urgent", "fyi", "brainstorm"] as const, {
-          description: "Message intent. Use urgent sparingly; prefer task comments for task-related discussion.",
-        })
-      ),
-      taskId: Type.Optional(Type.String({ description: "Optional related task ID for context/staleness assessment" })),
-      responseRequired: Type.Optional(Type.Boolean({ description: "Whether a reply is expected. Defaults true for brainstorm, false otherwise." })),
-      inReplyTo: Type.Optional(Type.String({ description: "Pending reply/message ID this message answers." })),
-    }),
-
-    async execute(_id, params) {
-      if (!mySession || !myId || !myName) {
-        throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
-      }
-
-      const target = await resolveAgent(params.to, mySession);
-      if (!target) {
-        const all = await readAllRegistries();
-        const online = all.filter((a) => isEffectivelyOnline(a) && a.id !== myId);
-        const available = online.map((a) => formatAddress(a.session, a.name)).join(", ");
-        throw new Error(`Agent "${params.to}" not found. Available: ${available || "none"}`);
-      }
-
-      if (target.id === myId) throw new Error("Cannot send a message to yourself.");
-
-      const responseRequired = params.responseRequired ?? params.category === "brainstorm";
-      const msg: InboxMessage = {
-        id: newMessageId(),
-        from: myId,
-        fromName: myName,
-        fromRole: myRoleName,
-        fromSession: mySession,
-        timestamp: new Date().toISOString(),
-        message: params.message,
-        category: params.category,
-        taskId: params.taskId,
-        responseRequired,
-        inReplyTo: params.inReplyTo,
-      };
-
-      sendToInbox(target.session, target.id, msg);
-      let pending = null;
-      if (responseRequired) {
-        pending = await createPendingReply(mySession, {
-          id: msg.id,
-          messageId: msg.id,
-          fromId: myId,
-          fromName: myName,
-          toSession: target.session,
-          toId: target.id,
-          toName: target.name,
-          createdAt: msg.timestamp,
-          messagePreview: messagePreview(params.message),
-          category: params.category,
-          taskId: params.taskId,
-        });
-      }
-      let replied = null;
-      if (params.inReplyTo) {
-        replied = await markPendingReplyReplied(target.session, params.inReplyTo, msg.id, myName)
-          || await markPendingReplyReplied(mySession, params.inReplyTo, msg.id, myName);
-      }
-
-      const targetAddr = formatAddress(target.session, target.name);
-      let text = `Message sent to ${targetAddr} (${target.roleName || target.role}).`;
-      if (pending) text += ` Response requested; pending reply id: ${pending.id}.`;
-      if (replied) text += ` Marked pending reply ${replied.id} as replied.`;
-      return {
-        content: [{ type: "text", text }],
-        details: { to: targetAddr, targetId: target.id, pendingReply: pending, repliedTo: replied },
-      };
-    },
-  });
-
-  // - amux_broadcast --------------------------------------------
-
-  pi.registerTool({
-    name: "amux_broadcast",
-    label: "Broadcast",
-    description:
-      "Send a message to all other online agents. Set allSessions=true for cross-session. " +
-      "Use sparingly  -- prefer targeted amux_send.",
-    promptSnippet: "Broadcast a message to online amux agents",
-    parameters: Type.Object({
-      message: Type.String({ description: "Message to broadcast" }),
-      allSessions: Type.Optional(
-        Type.Boolean({ description: "Broadcast to all sessions. Default: false." })
-      ),
-    }),
-
-    async execute(_id, params) {
-      if (!mySession || !myId || !myName) {
-        throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
-      }
-
-      let agents: AgentInfo[];
-      if (params.allSessions) {
-        agents = (await readAllRegistries()).filter(isEffectivelyOnline);
-      } else {
-        agents = await getOnlineAgents(mySession);
-      }
-
-      const others = agents.filter((a) => a.id !== myId);
-      if (others.length === 0) throw new Error("No other agents online.");
-
-      const errors: string[] = [];
-      for (const agent of others) {
-        try {
-          const msg: InboxMessage = {
-            id: newMessageId(),
-            from: myId,
-            fromName: myName,
-            fromRole: myRoleName,
-            fromSession: mySession,
-            timestamp: new Date().toISOString(),
-            message: params.message,
-          };
-          sendToInbox(agent.session, agent.id, msg);
-        } catch (err) {
-          errors.push(`${agent.name}: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-
-      const recipients = others.map((a) => formatAddress(a.session, a.name));
-      let text = `Broadcast sent to ${recipients.length} agent(s): ${recipients.join(", ")}`;
-      if (errors.length > 0) text += `\nFailed: ${errors.join("; ")}`;
-
-      return { content: [{ type: "text", text }], details: { recipients, errors } };
-    },
-  });
-
-  // - amux_project + amux_wow (neutral registry) -----------------
-
-  // Registered via the neutral tool registry bridge (pi/tool-adapter.ts).
-  // See allAmuxTools() in core/tools/project-tools.ts. Slash commands remain
-  // in this Pi adapter; only tool definitions/handlers moved to core.
+  // - Neutral-registry tools (migrated) --------------------------
+  // amux_artifacts, amux_list, amux_project, amux_wow, amux_send,
+  // amux_broadcast, amux_discussion are registered via the neutral tool
+  // registry bridge (pi/tool-adapter.ts). See allAmuxTools() in core/tools;
+  // slash commands remain in this Pi adapter, only tool definitions/handlers
+  // moved to core. Other tools below remain inline pending SPEC-18 slices.
 
   // - amux_reserve ----------------------------------------------
 
@@ -1207,7 +1031,7 @@ export default function (pi: ExtensionAPI) {
           if (result.shouldSignal) {
             await deliverNotificationPlans([
               planAssignmentNotification(target, result.assigned.map((t) => ({ id: t.id, title: t.title }))),
-            ]);
+            ], { id: myId, name: myName, roleName: myRoleName, session: mySession });
           }
 
           const assignedIds = result.assigned.map((t) => t.id).join(", ");
@@ -1305,227 +1129,6 @@ export default function (pi: ExtensionAPI) {
           return {
             content: [{ type: "text", text: `\u26a0\ufe0f ${blockResult.task.id} blocked: ${params.reason}` }],
             details: blockResult,
-          };
-        }
-
-        default:
-          throw new Error(`Unknown action: ${params.action}`);
-      }
-    },
-  });
-
-  async function discussionParticipantsForSession(session: string): Promise<ChannelParticipant[]> {
-    const registry = await readRegistry(session);
-    return Object.values(registry).map((agent) => ({
-      session,
-      id: agent.id,
-      name: agent.name,
-      role: agent.roleName || agent.role,
-    }));
-  }
-
-  async function resolveDiscussionParticipantInputs(
-    session: string,
-    inputs: string[],
-  ): Promise<ChannelParticipant[]> {
-    const registry = await readRegistry(session);
-    const byName = new Map(Object.values(registry).map((agent) => [agent.name.toLowerCase(), agent]));
-    const byId = new Map(Object.values(registry).map((agent) => [agent.id, agent]));
-    const resolved: ChannelParticipant[] = [];
-    const missing: string[] = [];
-
-    for (const input of inputs) {
-      const trimmed = input.trim();
-      if (!trimmed) continue;
-      if (trimmed.includes("/")) {
-        missing.push(`${input} (cross-session participants are not supported yet)`);
-        continue;
-      }
-      const agent = byId.get(trimmed) || byName.get(trimmed.toLowerCase());
-      if (!agent) {
-        missing.push(input);
-        continue;
-      }
-      resolved.push({
-        session,
-        id: agent.id,
-        name: agent.name,
-        role: agent.roleName || agent.role,
-      });
-    }
-
-    if (missing.length > 0) {
-      throw new Error(`Discussion participant(s) not found in ${session}: ${missing.join(", ")}`);
-    }
-    return resolved;
-  }
-
-
-  async function deliverNotificationPlans(plans: NotificationPlan[], senderTimestamp?: string): Promise<void> {
-    for (const plan of plans) {
-      if (plan.shouldSignal) {
-        await updateAgent(plan.recipientSession, plan.recipientId, { attentionPending: true });
-      }
-      sendToInbox(plan.recipientSession, plan.recipientId, {
-        id: newMessageId(),
-        from: myId!,
-        fromName: myName!,
-        fromRole: myRoleName,
-        fromSession: mySession!,
-        timestamp: senderTimestamp || new Date().toISOString(),
-        ...plan.message,
-      });
-    }
-  }
-
-  // - amux_discussion -------------------------------------------
-
-  pi.registerTool({
-    name: "amux_discussion",
-    label: "Multi-Party Discussions",
-    description:
-      "Start, post to, show, list, and close team discussions. " +
-      "Discussions are for cross-cutting topics (retros, brainstorms, design, sync) " +
-      "— not task-scoped work. For task-related discussion, use amux_task comment instead. " +
-      "For 1:1 exceptional communication, use amux_send.",
-    promptSnippet: "Start or contribute to team discussions (start, post, show, list, close)",
-    promptGuidelines: [
-      "Use amux_discussion for team-wide topics: retros, brainstorms, design reviews, syncs.",
-      "Use audience='all' for whole-team discussions and audience='agents' with participants for focused groups; audience controls notifications, not access control.",
-      "Use amux_task comment for task-scoped discussion — discussions are NOT a replacement.",
-      "Post to existing discussions rather than starting duplicates.",
-      "Close discussions with a summary of outcomes rather than leaving them open indefinitely.",
-    ],
-    parameters: Type.Object({
-      action: StringEnum(["start", "post", "show", "list", "close"] as const),
-      topic: Type.Optional(Type.String({ description: "Discussion topic (required for start)" })),
-      id: Type.Optional(Type.String({ description: "Discussion ID, e.g. DISC-01 (required for post, show, close)" })),
-      content: Type.Optional(Type.String({ description: "Post content (required for post); optional initial body for start" })),
-      summary: Type.Optional(Type.String({ description: "Closing summary (required for close)" })),
-      kind: Type.Optional(StringEnum(["discussion", "retro", "brainstorm", "design", "sync", "channel"] as const)),
-      audience: Type.Optional(StringEnum(["all", "agents"] as const)),
-      participants: Type.Optional(Type.Array(Type.String({
-        description: "Agent names or IDs for explicit participant discussions (audience=agents). Same-session only."
-      }))),
-      notify: Type.Optional(Type.Boolean({ description: "Notify participants. Default true." })),
-      silent: Type.Optional(Type.Boolean({ description: "Do not notify participants." })),
-    }),
-
-    async execute(_id, params) {
-      if (!mySession || !myId || !myName) {
-        throw new Error("Not registered. Use /amux new agent --join to set up, then /amux join.");
-      }
-
-      switch (params.action) {
-        case "start": {
-          if (!params.topic) throw new Error("topic is required for start.");
-
-          const audience = normalizeAudience(params.audience as ChannelAudience | undefined);
-          const author = { id: myId, name: myName, session: mySession };
-          const allAgents = await discussionParticipantsForSession(mySession);
-          const explicitAgents = audience === "agents"
-            ? await resolveDiscussionParticipantInputs(mySession, params.participants || [])
-            : [];
-          if (audience === "agents" && explicitAgents.length === 0 && (!params.participants || params.participants.length === 0)) {
-            throw new Error("participants are required when audience is agents.");
-          }
-          const explicitWithCreator = audience === "agents"
-            ? [...explicitAgents, { session: mySession, id: myId, name: myName, role: myRoleName }]
-            : explicitAgents;
-          const participants = resolveDiscussionParticipants(audience, author, allAgents, explicitWithCreator);
-
-          const id = startDiscussion(mySession, {
-            topic: params.topic,
-            kind: params.kind as ChannelKind,
-            audience,
-            participants,
-            author,
-            content: params.content,
-          });
-
-          const discussion = readDiscussion(mySession, id)!;
-          await deliverNotificationPlans(planDiscussionNotifications({
-            discussion, action: "started",
-            senderId: myId, senderName: myName, senderRole: myRoleName, senderSession: mySession,
-            skip: params.silent || params.notify === false,
-          }));
-          const view = renderDiscussion(discussion);
-          return {
-            content: [{ type: "text", text: view }],
-            details: { discussion },
-          };
-        }
-
-        case "post": {
-          if (!params.id) throw new Error("id is required for post.");
-          if (!params.content) throw new Error("content is required for post.");
-
-          const discussion = postToDiscussion(mySession, params.id, {
-            content: params.content,
-            author: { id: myId, name: myName, session: mySession, role: myRoleName },
-          });
-          if (!discussion) throw new Error(`Discussion ${params.id} not found.`);
-
-          await deliverNotificationPlans(planDiscussionNotifications({
-            discussion, action: "post", preview: params.content,
-            senderId: myId, senderName: myName, senderRole: myRoleName, senderSession: mySession,
-            skip: params.silent || params.notify === false,
-          }));
-
-          const view = renderDiscussion(discussion);
-          return {
-            content: [{ type: "text", text: view }],
-            details: { discussion },
-          };
-        }
-
-        case "show": {
-          if (!params.id) throw new Error("id is required for show.");
-
-          const discussion = readDiscussion(mySession, params.id);
-          if (!discussion) throw new Error(`Discussion ${params.id} not found.`);
-          const view = renderDiscussion(discussion);
-          return {
-            content: [{ type: "text", text: view }],
-            details: { discussion },
-          };
-        }
-
-        case "list": {
-          const summaries = listDiscussions(mySession);
-          if (summaries.length === 0) {
-            return {
-              content: [{ type: "text", text: "No discussions yet. Use amux_discussion start to create one." }],
-              details: { summaries: [] },
-            };
-          }
-          const view = renderDiscussionList(summaries);
-          return {
-            content: [{ type: "text", text: view }],
-            details: { summaries },
-          };
-        }
-
-        case "close": {
-          if (!params.id) throw new Error("id is required for close.");
-          if (!params.summary || !params.summary.trim()) throw new Error("summary is required for close.");
-
-          const discussion = closeDiscussion(mySession, params.id, {
-            summary: params.summary,
-            author: { id: myId, name: myName, session: mySession, role: myRoleName },
-          });
-          if (!discussion) throw new Error(`Discussion ${params.id} not found.`);
-
-          await deliverNotificationPlans(planDiscussionNotifications({
-            discussion, action: "closed", preview: params.summary,
-            senderId: myId, senderName: myName, senderRole: myRoleName, senderSession: mySession,
-            skip: params.silent || params.notify === false,
-          }));
-
-          const view = renderDiscussion(discussion);
-          return {
-            content: [{ type: "text", text: view }],
-            details: { discussion },
           };
         }
 
@@ -1764,7 +1367,7 @@ export default function (pi: ExtensionAPI) {
       task, comment, previousComments, agents,
       senderId: myId, senderName: myName, senderRole: myRoleName, senderSession: session,
     });
-    await deliverNotificationPlans(plans, comment.timestamp);
+    await deliverNotificationPlans(plans, { id: myId, name: myName, roleName: myRoleName, session }, comment.timestamp);
     return plans.map((p) => p.recipientName);
   }
 

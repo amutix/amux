@@ -81,6 +81,9 @@ import {
   listTool,
   projectTool,
   wowTool,
+  sendTool,
+  broadcastTool,
+  discussionTool,
   objectSchema,
   optionalBoolProp,
   type AmuxToolContext,
@@ -2709,9 +2712,14 @@ describe("Neutral tool registry (SPEC-18)", () => {
     assert.ok(names.includes("amux_list"));
     assert.ok(names.includes("amux_project"));
     assert.ok(names.includes("amux_wow"));
+    assert.ok(names.includes("amux_send"));
+    assert.ok(names.includes("amux_broadcast"));
+    assert.ok(names.includes("amux_discussion"));
     assert.equal(getAmuxTool("amux_list")!.name, "amux_list");
     assert.equal(getAmuxTool("amux_project")!.name, "amux_project");
     assert.equal(getAmuxTool("amux_wow")!.name, "amux_wow");
+    assert.equal(getAmuxTool("amux_send")!.name, "amux_send");
+    assert.equal(getAmuxTool("amux_discussion")!.name, "amux_discussion");
     assert.equal(getAmuxTool("nonexistent"), undefined);
   });
 
@@ -2750,6 +2758,25 @@ describe("Neutral tool registry (SPEC-18)", () => {
     assert.deepEqual(wowTool.inputSchema.required, ["action"]);
     assert.deepEqual(wowTool.inputSchema.properties.action.enum, ["show", "set", "append", "clear", "path"]);
     assert.ok(wowTool.promptGuidelines?.some((g) => g.includes("team collaboration norms")));
+
+    // Communication tools (Slice 3)
+    assert.equal(sendTool.name, "amux_send");
+    assert.equal(sendTool.label, "Send to Agent");
+    assert.deepEqual(sendTool.inputSchema.required, ["to", "message"]);
+    assert.deepEqual(sendTool.inputSchema.properties.category.enum, ["urgent", "fyi", "brainstorm"]);
+    assert.ok(sendTool.inputSchema.properties.responseRequired);
+    assert.ok(sendTool.inputSchema.properties.inReplyTo);
+
+    assert.equal(broadcastTool.name, "amux_broadcast");
+    assert.deepEqual(broadcastTool.inputSchema.required, ["message"]);
+    assert.equal(broadcastTool.inputSchema.properties.allSessions.type, "boolean");
+
+    assert.equal(discussionTool.name, "amux_discussion");
+    assert.deepEqual(discussionTool.inputSchema.required, ["action"]);
+    assert.deepEqual(discussionTool.inputSchema.properties.action.enum, ["start", "post", "show", "list", "close"]);
+    assert.equal(discussionTool.inputSchema.properties.participants.type, "array");
+    assert.equal(discussionTool.inputSchema.properties.participants.items.type, "string");
+    assert.ok(discussionTool.promptGuidelines?.some((g) => g.includes("retros, brainstorms")));
   });
 });
 
@@ -2856,6 +2883,182 @@ describe("Neutral tool handlers (SPEC-18 pilot)", () => {
     const clear = await wowTool.execute(ctx, { action: "clear" });
     assert.equal(clear.text, "Ways of Working cleared. Changes affect future agent prompts.");
     assert.equal((clear.details as { content: string }).content, "");
+  });
+});
+
+describe("Neutral communication tools (SPEC-18 Slice 3)", () => {
+  const session = testSession("commtools");
+  const senderId = newAgentId();
+  const teammateId = newAgentId();
+  const senderCtx: AmuxToolContext = {
+    session,
+    agentId: senderId,
+    agentName: "Sender",
+    roleName: "developer",
+  };
+
+  before(async () => {
+    await registerAgent(session, {
+      id: senderId, name: "Sender", session, role: "developer", roleName: "developer",
+      cwd: "/tmp", pid: 0, status: "online",
+      registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+    });
+    await registerAgent(session, {
+      id: teammateId, name: "Teammate", session, role: "reviewer", roleName: "reviewer",
+      cwd: "/tmp", pid: 0, status: "online",
+      registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+    });
+  });
+  after(() => cleanupSession(session));
+
+  it("amux_send delivers to inbox and creates pending reply when responseRequired", async () => {
+    const result = await sendTool.execute(senderCtx, {
+      to: "Teammate", message: "please review", category: "fyi", responseRequired: true,
+    });
+    assert.ok(result.text.includes("Message sent to"));
+    assert.ok(result.text.includes("Response requested"));
+    const details = result.details as { pendingReply: { id: string } };
+    assert.ok(details.pendingReply);
+    assert.ok(details.targetId, teammateId);
+  });
+
+  it("amux_send rejects self-send", async () => {
+    await assert.rejects(
+      sendTool.execute(senderCtx, { to: "Sender", message: "hi" }),
+      /Cannot send a message to yourself/,
+    );
+  });
+
+  it("amux_send marks inReplyTo pending reply as replied", async () => {
+    // Teammate sends a response-required message to Sender, creating a pending reply
+    const teammateCtx: AmuxToolContext = { ...senderCtx, agentId: teammateId, agentName: "Teammate" };
+    await sendTool.execute(teammateCtx, {
+      to: "Sender", message: "need input", category: "brainstorm",
+    });
+    // Sender has a pending reply from the brainstorm (brainstorm defaults responseRequired)
+    const pending = await readPendingReplies(session);
+    assert.ok(pending.length > 0, "expected at least one pending reply");
+    // Sender replies, marking the pending reply as replied via inReplyTo
+    const reply = await sendTool.execute(senderCtx, {
+      to: "Teammate", message: "here it is", inReplyTo: pending[0].messageId,
+    });
+    assert.ok(reply.text.includes("Marked pending reply"));
+  });
+
+  it("amux_broadcast sends to all other online agents", async () => {
+    const result = await broadcastTool.execute(senderCtx, { message: "team sync" });
+    assert.ok(result.text.includes("Broadcast sent to 1 agent"));
+    assert.ok(result.text.includes("Teammate"));
+    assert.deepEqual((result.details as { recipients: string[] }).recipients.length, 1);
+  });
+
+  it("amux_broadcast throws when no other agents online", async () => {
+    const lonelySession = testSession("commtools-lonely");
+    const lonelyId = newAgentId();
+    await registerAgent(lonelySession, {
+      id: lonelyId, name: "Lonely", session: lonelySession, role: "dev", roleName: "dev",
+      cwd: "/tmp", pid: 0, status: "online",
+      registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+    });
+    const lonelyCtx: AmuxToolContext = { session: lonelySession, agentId: lonelyId, agentName: "Lonely" };
+    await assert.rejects(
+      broadcastTool.execute(lonelyCtx, { message: "hello?" }),
+      /No other agents online/,
+    );
+    cleanupSession(lonelySession);
+  });
+});
+
+describe("Neutral discussion tool (SPEC-18 Slice 3)", () => {
+  const session = testSession("disctools");
+  const authorId = newAgentId();
+  const participantId = newAgentId();
+  const authorCtx: AmuxToolContext = {
+    session,
+    agentId: authorId,
+    agentName: "Author",
+    roleName: "developer",
+  };
+  let discussionId = "";
+
+  before(async () => {
+    await registerAgent(session, {
+      id: authorId, name: "Author", session, role: "developer", roleName: "developer",
+      cwd: "/tmp", pid: 0, status: "online",
+      registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+    });
+    await registerAgent(session, {
+      id: participantId, name: "Participant", session, role: "dev", roleName: "dev",
+      cwd: "/tmp", pid: 0, status: "online",
+      registeredAt: new Date().toISOString(), lastHeartbeat: new Date().toISOString(),
+    });
+  });
+  after(() => cleanupSession(session));
+
+  it("start creates a discussion with audience=all including all online agents", async () => {
+    const result = await discussionTool.execute(authorCtx, {
+      action: "start", topic: "Retro", kind: "retro", audience: "all",
+    });
+    const details = result.details as { discussion: { id: string; participants: unknown[] } };
+    discussionId = details.discussion.id;
+    assert.ok(discussionId.startsWith("DISC-"));
+    // audience=all resolves all session agents as participants (Author + Participant)
+    assert.ok(details.discussion.participants.length >= 2);
+    assert.ok(result.text.includes("Retro"));
+  });
+
+  it("post adds content and renders the thread", async () => {
+    const result = await discussionTool.execute(authorCtx, {
+      action: "post", id: discussionId, content: "What worked well?",
+    });
+    assert.ok(result.text.includes("What worked well?"));
+    assert.ok((result.details as { discussion: { id: string } }).discussion.id, discussionId);
+  });
+
+  it("show renders an existing discussion", async () => {
+    const result = await discussionTool.execute(authorCtx, { action: "show", id: discussionId });
+    assert.ok(result.text.includes("Retro"));
+    assert.ok(result.text.includes("What worked well?"));
+  });
+
+  it("list shows the discussion in the summary", async () => {
+    const result = await discussionTool.execute(authorCtx, { action: "list" });
+    assert.ok(result.text.includes(discussionId));
+    assert.deepEqual((result.details as { summaries: unknown[] }).summaries.length, 1);
+  });
+
+  it("start with audience=agents requires participants", async () => {
+    await assert.rejects(
+      discussionTool.execute(authorCtx, { action: "start", topic: "X", audience: "agents" }),
+      /participants are required when audience is agents/,
+    );
+  });
+
+  it("start with audience=agents resolves named participants", async () => {
+    const result = await discussionTool.execute(authorCtx, {
+      action: "start", topic: "Design jam", audience: "agents", participants: ["Participant"],
+    });
+    const details = result.details as { discussion: { participants: { id: string }[] } };
+    // explicit participant + creator
+    const ids = details.discussion.participants.map((p) => p.id);
+    assert.ok(ids.includes(participantId));
+    assert.ok(ids.includes(authorId));
+  });
+
+  it("close finalizes with a summary", async () => {
+    const result = await discussionTool.execute(authorCtx, {
+      action: "close", id: discussionId, summary: "Shipped it.",
+    });
+    assert.ok(result.text.includes("Shipped it."));
+    const disc = result.details as { discussion: { status: string } };
+    assert.equal(disc.discussion.status, "closed");
+  });
+
+  it("silent: true suppresses notifications (no throw, empty plan delivery)", async () => {
+    const result = await discussionTool.execute(authorCtx, {
+      action: "start", topic: "Quiet", silent: true,
+    });
+    assert.ok(result.text.includes("Quiet"));
   });
 });
 

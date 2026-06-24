@@ -9,14 +9,16 @@
 import { type AmuxToolDefinition } from "./types.ts";
 import { artifactsTool, listTool } from "./pilot-tools.ts";
 import { projectTool, wowTool } from "./project-tools.ts";
+import { sendTool, broadcastTool, discussionTool } from "./communication-tools.ts";
 
 export * from "./types.ts";
 export { artifactsTool, listTool } from "./pilot-tools.ts";
 export { projectTool, wowTool } from "./project-tools.ts";
+export { sendTool, broadcastTool, discussionTool } from "./communication-tools.ts";
 
 /** All registered neutral amux tools, in registration order. */
 export function allAmuxTools(): AmuxToolDefinition[] {
-  return [artifactsTool, listTool, projectTool, wowTool];
+  return [artifactsTool, listTool, projectTool, wowTool, sendTool, broadcastTool, discussionTool];
 }
 
 /** Look up a neutral tool by name. */
