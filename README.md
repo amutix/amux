@@ -2,26 +2,34 @@
 
 amutix is a local, file-backed coordination layer for AI coding agents.
 
-It provides shared project state for agents working in the same repository: who the agents are, what work exists, who owns it, what is blocked, which files are reserved, and what context should be injected into each agent's prompt.
+It does **not** run the agents for you. Instead, it gives independent agents a shared source of truth: project context, roles, backlog, task comments, file reservations, review handoffs, decisions, and compact prompt context.
 
-The core is framework-agnostic. This package includes a [Pi](https://github.com/earendil-works/pi) extension and a read-only CLI.
+Use amutix underneath your preferred agent runtime, terminal workspace, or IDE. Pi is the first full adapter, and the core is framework-agnostic so future hosts can share the same coordination behavior.
 
 ## Scope
 
-Use amutix when you already have multiple coding agents or sessions and need a lightweight way to coordinate them.
+Use amutix when you already have multiple coding agents or sessions and need them to behave like an aligned engineering team.
 
-It is not an LLM runtime, hosted agent platform, workflow DAG engine, or automatic planner.
+amutix is the coordination layer between agents and their work. It is not an LLM runtime, terminal pane manager, hosted agent platform, workflow DAG engine, or automatic planner. Those tools decide where agents run; amutix keeps what they are doing aligned, durable, reviewable, and visible.
 
-## Core surfaces
+## What the coordination layer owns
 
 - **Project context**: shared goal, constraints, and direction
 - **Ways of Working**: project-specific team norms
 - **Roles and team templates**: reusable agent responsibilities
 - **Backlog**: initiatives, milestones, tasks, bugs, chores, specs, dependencies
-- **Task comments**: discussion attached to the work
-- **Reservations**: advisory file/path ownership
-- **Journal**: decisions, learnings, and progress
+- **Task comments**: discussion attached to the work instead of scattered across chats
+- **Reservations**: advisory file/path ownership to reduce edit conflicts
+- **Review handoffs**: explicit lifecycle state before work is considered done
+- **Journal**: durable decisions, learnings, and progress
 - **Prompt assembly**: compact state-derived context for each agent
+
+## What amutix deliberately does not own
+
+- **Model execution**: agents still run in Pi, a terminal, an IDE, or another host
+- **Pane/session management**: tools like tmux, Paneflow, or an IDE can own live terminals
+- **Autonomous planning magic**: amutix provides the reviewable state surfaces; agents still make plans and trade-offs
+- **Hosted server infrastructure**: state is local, file-backed, and inspectable
 
 ## Architecture
 

@@ -12,6 +12,22 @@ A single agent can be fast, but it is bounded by one context window, one line of
 
 amutix is the coordination layer for that team.
 
+## Positioning
+
+amutix owns **coordination state**, not model execution.
+
+It should sit underneath agent runtimes, terminal workspaces, IDEs, and future hosts as the durable layer that answers:
+
+- What are we trying to accomplish?
+- Who is on the team, and what role are they playing?
+- What work exists, who owns it, and what depends on what?
+- Which files or directories are reserved?
+- What needs review before it is done?
+- What decisions and learnings should future agents inherit?
+- What compact context should be injected before an agent acts?
+
+This makes amutix complementary to execution surfaces. A pane manager shows live terminals; an agent runtime talks to the model; a workflow runner may sequence prompts. amutix keeps the team's shared plan, ownership, decisions, and review state coherent across those surfaces.
+
 ## Core belief
 
 The hard problem in multi-agent coding is not sending messages. It is keeping work aligned while multiple agents act independently.
@@ -114,7 +130,7 @@ amutix provides the shared surfaces these roles need: backlog, comments, reserva
 
 Multi-agent systems fail when communication becomes more expensive than execution. They produce stale instructions, duplicate work, file conflicts, hidden decisions, and unreviewed divergence.
 
-amutix addresses those failure modes by making coordination explicit and lightweight:
+amutix addresses those failure modes by making coordination explicit, durable, and lightweight:
 
 - **Shared state** replaces fragile memory.
 - **Task-scoped history** replaces scattered chat.

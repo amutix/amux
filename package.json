@@ -1,16 +1,18 @@
 {
   "name": "amutix",
   "version": "2.0.0",
-  "description": "Coordination layer for AI coding agent teams -- durable backlog, review state, and alignment",
+  "description": "Local coordination layer for AI agent teams: shared backlog, roles, reservations, review state, journal, and prompt context",
   "type": "module",
   "keywords": [
     "amutix",
-    "pi-package",
+    "ai-agents",
     "multi-agent",
     "agent-coordination",
-    "ai-agents",
-    "agent-orchestration",
-    "coordination",
+    "agent-teams",
+    "coordination-layer",
+    "backlog",
+    "review-workflow",
+    "pi-package",
     "cli"
   ],
   "repository": {

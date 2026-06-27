@@ -8,7 +8,7 @@ The generic "amux" (agent-multiplexer) name collided head-on with another open-s
 
 - **Product name**: amux → amutix
 - **Binary**: `amux` → `amutix`
-- **npm package**: `@amutix/amux` → `amutix` (unscoped) and `amux-pi` → `@amutix/pi`
+- **npm package**: `@amutix/amux` → `amutix` (unscoped). The Pi extension ships inside the `amutix` package via the root `pi.extensions` manifest; there is no separate `@amutix/pi` package.
 - **Slash command**: `/amux` → `/amutix` (with `/amux` back-compat alias, removed in 3.0)
 - **Tool names**: all `amux_*` tools → `amutix_*` (with `amux_*` aliases, removed in 3.0):
   - `amutix_task`, `amutix_send`, `amutix_broadcast`, `amutix_discussion`, `amutix_role`, `amutix_reserve`, `amutix_journal`, `amutix_project`, `amutix_wow`, `amutix_artifacts`, `amutix_list`
@@ -28,7 +28,11 @@ Agents and scripts using old `amux_*` tool names and `/amux` commands continue t
 
 ## Unreleased
 
-No changes yet.
+### Changed
+
+- Repositioned README, vision, and npm metadata around amutix as the local coordination layer for AI agent teams: it owns shared state, backlog, roles, reservations, review state, journal, and prompt context — not model execution, pane management, hosted infrastructure, or automatic planning.
+- Clarified that amutix is complementary to agent runtimes, terminal workspaces, IDEs, and workflow runners.
+- Corrected the 2.0.0 changelog package note: the Pi extension is bundled in the published `amutix` package, not released as a separate `@amutix/pi` package.
 
 ## 1.3.0 (2026-06-24)
 
