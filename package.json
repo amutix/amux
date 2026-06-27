@@ -1,6 +1,6 @@
 {
   "name": "amutix",
-  "version": "1.3.0",
+  "version": "2.0.0",
   "description": "Coordination layer for AI coding agent teams -- durable backlog, review state, and alignment",
   "type": "module",
   "keywords": [
