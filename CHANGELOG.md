@@ -35,6 +35,7 @@ Agents and scripts using old `amux_*` tool names and `/amux` commands continue t
 
 ### Changed
 
+- Reduced self-wake noise: generic attention digests no longer fire for message-only attention, because inbox watcher/recovery already deliver the concrete message follow-ups.
 - Attention is no longer cleared at turn start; Pi records `lastTurnEndedAt` and clears the initiator flag only on `agent_end`, preventing lost wakes when a turn is interrupted.
 - Repositioned README, vision, and npm metadata around amutix as the local coordination layer for AI agent teams: it owns shared state, backlog, roles, reservations, review state, journal, and prompt context — not model execution, pane management, hosted infrastructure, or automatic planning.
 - Clarified that amutix is complementary to agent runtimes, terminal workspaces, IDEs, and workflow runners.

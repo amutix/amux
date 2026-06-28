@@ -223,6 +223,7 @@ import {
 } from "../core/task-service.ts";
 import {
   computeAttentionDigest,
+  wakeableAttentionEntries,
   attentionSignature,
   shouldDeliverAttention,
   renderAttentionNotice,
@@ -1721,6 +1722,18 @@ describe("Self-waking attention digest", () => {
     const notice = renderAttentionNotice(digest);
     assert.match(notice, /outstanding attention/);
     assert.match(notice, new RegExp(review.id));
+  });
+
+  it("does not produce generic wake digest for message-only attention", () => {
+    const digest = [
+      { kind: "message" as const, pointer: "msg-1", summary: "Unread task comment" },
+    ];
+    const wakeable = wakeableAttentionEntries(digest);
+    assert.deepEqual(wakeable, []);
+    assert.equal(shouldDeliverAttention({
+      digest: wakeable,
+      signature: attentionSignature(wakeable),
+    }), false);
   });
 
   it("derives active in-progress work as a resume pointer after pick", async () => {

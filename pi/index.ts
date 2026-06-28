@@ -67,6 +67,7 @@ import {
 } from "../core/prompt-context";
 import {
   computeAttentionDigest,
+  wakeableAttentionEntries,
   attentionSignature,
   shouldDeliverAttention,
   renderAttentionNotice,
@@ -171,7 +172,7 @@ export default function (pi: ExtensionAPI) {
 
     if (self.availability === "focus" || self.availability === "away") return;
 
-    const digest = await computeAttentionDigest(mySession, myId, self);
+    const digest = wakeableAttentionEntries(await computeAttentionDigest(mySession, myId, self));
     const signature = attentionSignature(digest);
     if (!shouldDeliverAttention({
       digest,

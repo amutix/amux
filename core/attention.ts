@@ -132,6 +132,20 @@ export async function computeAttentionDigest(
   return entries;
 }
 
+// ─── Wakeable subset ─────────────────────────────────────────
+
+/**
+ * Entries that should produce a generic self-wake digest.
+ *
+ * Plain inbox messages are deliberately excluded here: the inbox watcher and
+ * crash-recovery path already deliver concrete follow-ups containing the actual
+ * message. Including them in the generic digest creates noisy duplicates like:
+ * "You have outstanding attention" immediately followed by the real comment.
+ */
+export function wakeableAttentionEntries(entries: AttentionEntry[]): AttentionEntry[] {
+  return entries.filter((e) => e.kind !== "message");
+}
+
 // ─── Signature (dedup / new-attention detection) ─────────────
 
 /**
