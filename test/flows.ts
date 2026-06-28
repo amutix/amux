@@ -222,6 +222,12 @@ import {
   serviceBlockTask,
 } from "../core/task-service.ts";
 import {
+  computeAttentionDigest,
+  attentionSignature,
+  shouldDeliverAttention,
+  renderAttentionNotice,
+} from "../core/attention.ts";
+import {
   canTransition,
   targetStatus,
   getTaskTransitionDefinition,
@@ -1657,6 +1663,104 @@ describe("Setup/workspace helpers", () => {
     assert.equal(plan.recipientName, "Developer");
     assert.match(plan.message.message, /Assigned: TASK-01 — Build it/);
     assert.equal(plan.message.requiresAttention, true);
+  });
+});
+
+describe("Self-waking attention digest", () => {
+  const session = testSession("attention-digest");
+  after(() => cleanupSession(session));
+
+  const now = new Date().toISOString();
+  let devId: string;
+  let reviewerId: string;
+
+  before(async () => {
+    devId = newAgentId();
+    reviewerId = newAgentId();
+    await registerAgent(session, {
+      id: devId, name: "Dev", session,
+      role: "developer", cwd: "/tmp", pid: 1, status: "online",
+      availability: "idle", registeredAt: now, lastHeartbeat: now,
+    });
+    await registerAgent(session, {
+      id: reviewerId, name: "Reviewer", session,
+      role: "reviewer", cwd: "/tmp", pid: 2, status: "online",
+      availability: "idle", attentionPending: true,
+      registeredAt: now, lastHeartbeat: now,
+    });
+  });
+
+  it("derives assigned, unread-message, and flagged-review attention", async () => {
+    const assigned = await addTask(session, {
+      title: "Assigned slice", status: "assigned",
+      assignee: "Reviewer", assigneeId: reviewerId,
+      createdBy: "Test", createdAt: now, updatedAt: now,
+    });
+    const review = await addTask(session, {
+      title: "Needs review", status: "review",
+      assignee: "Dev", assigneeId: devId,
+      createdBy: "Test", createdAt: now, updatedAt: now,
+    });
+    sendToInbox(session, reviewerId, {
+      id: newMessageId(),
+      from: devId,
+      fromName: "Dev",
+      fromRole: "developer",
+      fromSession: session,
+      message: "Please check the review when you have a chance.",
+      timestamp: now,
+      requiresAttention: true,
+    });
+
+    const reviewer = await findById(session, reviewerId);
+    const digest = await computeAttentionDigest(session, reviewerId, reviewer!);
+    assert.ok(digest.some((e) => e.kind === "assigned" && e.pointer === assigned.id));
+    assert.ok(digest.some((e) => e.kind === "review" && e.pointer === review.id));
+    assert.ok(digest.some((e) => e.kind === "message"));
+
+    const notice = renderAttentionNotice(digest);
+    assert.match(notice, /outstanding attention/);
+    assert.match(notice, new RegExp(review.id));
+  });
+
+  it("deduplicates until new attention, but re-delivers after missed/interrupted turns", () => {
+    const digest = [
+      { kind: "review" as const, pointer: "TASK-01", summary: "TASK-01 ready for review" },
+    ];
+    const signature = attentionSignature(digest);
+    const deliveredAt = new Date("2026-01-01T00:00:00.000Z").toISOString();
+
+    assert.equal(shouldDeliverAttention({ digest, signature }), true);
+    assert.equal(shouldDeliverAttention({
+      digest,
+      signature,
+      deliveredAt,
+      deliveredSig: signature,
+      now: new Date("2026-01-01T00:00:30.000Z").getTime(),
+    }), false);
+    assert.equal(shouldDeliverAttention({
+      digest,
+      signature,
+      deliveredAt,
+      deliveredSig: signature,
+      now: new Date("2026-01-01T00:03:00.000Z").getTime(),
+    }), true);
+    assert.equal(shouldDeliverAttention({
+      digest,
+      signature,
+      deliveredAt,
+      deliveredSig: signature,
+      lastTurnEndedAt: new Date("2026-01-01T00:04:00.000Z").toISOString(),
+      now: new Date("2026-01-01T00:05:00.000Z").getTime(),
+    }), false);
+    assert.equal(shouldDeliverAttention({
+      digest,
+      signature: "review:TASK-02",
+      deliveredAt,
+      deliveredSig: signature,
+      lastTurnEndedAt: new Date("2026-01-01T00:04:00.000Z").toISOString(),
+      now: new Date("2026-01-01T00:05:00.000Z").getTime(),
+    }), true);
   });
 });
 

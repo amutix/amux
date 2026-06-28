@@ -1,5 +1,5 @@
 /**
- * amux core -- Agent Multiplexer
+ * amutix core -- AI agent coordination layer
  *
  * Public API for multi-agent coordination.
  * Pi-independent, framework-agnostic, zero dependencies beyond Node.js.
@@ -22,6 +22,7 @@ export * from "./prompt-assembly";
 export * from "./notification-service";
 export * from "./setup-service";
 export * from "./prompt-context";
+export * from "./attention";
 export * from "./tools/index";
 export * from "./ways-of-working";
 export * from "./discussions";

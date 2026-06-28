@@ -28,8 +28,14 @@ Agents and scripts using old `amux_*` tool names and `/amux` commands continue t
 
 ## Unreleased
 
+### Added
+
+- Added a lightweight self-waking attention digest for Pi agents. Each live agent's own heartbeat now derives outstanding attention from durable state (unread inbox messages, assigned-but-unpicked work, pending replies, and targeted review attention) and sends a compact self-wake follow-up with pointers only.
+- Added turn-completion-gated attention dedup: unchanged attention is suppressed after a completed turn, but an interrupted/missed turn is re-woken because `lastTurnEndedAt` never advanced.
+
 ### Changed
 
+- Attention is no longer cleared at turn start; Pi records `lastTurnEndedAt` and clears the initiator flag only on `agent_end`, preventing lost wakes when a turn is interrupted.
 - Repositioned README, vision, and npm metadata around amutix as the local coordination layer for AI agent teams: it owns shared state, backlog, roles, reservations, review state, journal, and prompt context — not model execution, pane management, hosted infrastructure, or automatic planning.
 - Clarified that amutix is complementary to agent runtimes, terminal workspaces, IDEs, and workflow runners.
 - Corrected the 2.0.0 changelog package note: the Pi extension is bundled in the published `amutix` package, not released as a separate `@amutix/pi` package.

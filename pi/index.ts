@@ -39,7 +39,6 @@ import {
   getOnlineAgents,
   getOfflineAgents,
   isEffectivelyOnline,
-  shouldSignalAgent,
   HEARTBEAT_INTERVAL_MS,
   formatAddress,
   readRoles,
@@ -66,6 +65,12 @@ import {
   gatherAgentPromptSections,
   type PromptContextAgent,
 } from "../core/prompt-context";
+import {
+  computeAttentionDigest,
+  attentionSignature,
+  shouldDeliverAttention,
+  renderAttentionNotice,
+} from "../core/attention";
 import { allAmutixTools } from "../core/tools/index.ts";
 import { registerAmutixTools, buildAmutixToolContext } from "./tool-adapter.ts";
 import {
@@ -76,7 +81,6 @@ import {
   appendToHistory,
   watchInbox,
   formatMessageAge,
-  readPendingReplies,
   type InboxMessage,
 } from "../core/messaging";
 import {
@@ -161,6 +165,33 @@ export default function (pi: ExtensionAPI) {
     return text;
   }
 
+  async function maybeDeliverAttentionDigest(): Promise<void> {
+    if (!mySession || !myId) return;
+    const self = await findById(mySession, myId).catch(() => null);
+    if (!self || !isEffectivelyOnline(self)) return;
+
+    const backlog = await readBacklog(mySession).catch(() => [] as BacklogItem[]);
+    const hasActiveWork = backlog.some((t) => t.status === "in-progress" && t.assigneeId === myId);
+    if (self.availability === "focus" || self.availability === "away") return;
+    if (self.availability === "working" && hasActiveWork) return;
+
+    const digest = await computeAttentionDigest(mySession, myId, self);
+    const signature = attentionSignature(digest);
+    if (!shouldDeliverAttention({
+      digest,
+      signature,
+      deliveredAt: self.attentionDeliveredAt,
+      deliveredSig: self.attentionDigestSig,
+      lastTurnEndedAt: self.lastTurnEndedAt,
+    })) return;
+
+    await updateAgent(mySession, myId, {
+      attentionDeliveredAt: new Date().toISOString(),
+      attentionDigestSig: signature,
+    });
+    pi.sendUserMessage(renderAttentionNotice(digest), { deliverAs: "followUp" });
+  }
+
   // -- Agent Startup/Shutdown Helpers ---------------------------
 
   /** Common setup after register or login. */
@@ -179,6 +210,7 @@ export default function (pi: ExtensionAPI) {
     heartbeatTimer = setInterval(async () => {
       if (mySession && myId) {
         await updateHeartbeat(mySession, myId).catch(() => {});
+        await maybeDeliverAttentionDigest().catch(() => {});
       }
     }, HEARTBEAT_INTERVAL_MS);
 
@@ -299,12 +331,17 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_start", async () => {
     if (mySession && myId) {
       await updateHeartbeat(mySession, myId).catch(() => {});
+      await maybeDeliverAttentionDigest().catch(() => {});
     }
   });
 
   pi.on("agent_end", async () => {
     if (mySession && myId) {
       await updateHeartbeat(mySession, myId).catch(() => {});
+      await updateAgent(mySession, myId, {
+        lastTurnEndedAt: new Date().toISOString(),
+        attentionPending: false,
+      }).catch(() => {});
       // Clean up .delivered files  -- messages confirmed processed
       confirmDelivered(mySession, myId);
       // Clean up stale reservations (held by offline agents)
@@ -379,15 +416,6 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("before_agent_start", async (event) => {
     if (!mySession || !myName) return;
-
-    // Clear attention pending flag on agent interaction
-    if (myId) {
-      const self = await findById(mySession, myId);
-      if (self?.attentionPending) {
-        await updateAgent(mySession, myId, { attentionPending: false });
-      }
-    }
-
     if (!myId) return;
 
     const sections = await gatherPromptSections();

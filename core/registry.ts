@@ -37,7 +37,11 @@ export interface AgentInfo {
   availability?: "idle" | "working" | "focus" | "away";
   statusMessage?: string; // freeform status message
   availabilityUpdatedAt?: string; // ISO 8601
-  attentionPending?: boolean; // coalesced attention flag
+  attentionPending?: boolean; // coalesced attention flag (imperative trigger set by initiators)
+  // ── Self-waking attention (INIT-16) ──
+  lastTurnEndedAt?: string; // ISO 8601 — stamped on agent_end; gates re-wake after interrupted turns
+  attentionDeliveredAt?: string; // ISO 8601 — last attention digest delivered by the heartbeat
+  attentionDigestSig?: string; // signature of the last delivered digest (new-attention detection)
   registeredAt: string; // ISO 8601
   lastHeartbeat: string; // ISO 8601
 }
