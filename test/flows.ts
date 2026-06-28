@@ -4625,12 +4625,18 @@ describe("amutix_task transition notifications (SPEC-19 slice 3)", () => {
     assert.equal((show.details as { task: BacklogItem }).task.assignee, "Developer");
   });
 
-  it("review is silent by default (no notifyTarget suppresses delivery)", async () => {
+  it("review defaults to notifying subscribers, while notifyTarget=none suppresses delivery", async () => {
     const id = await newPickedTask("Feature Y");
     const before = getRecoverableMessages(session, reviewerId).length;
-    const res = await taskTool.execute(devCtx, { action: "review", id, summary: "done" });
-    assert.doesNotMatch(res.text, /Notified:/);
-    assert.equal(getRecoverableMessages(session, reviewerId).length, before);
+    const res = await taskTool.execute(devCtx, { action: "review", id, summary: "done @Reviewer" });
+    assert.match(res.text, /Notified: Reviewer/);
+    assert.equal(getRecoverableMessages(session, reviewerId).length, before + 1);
+
+    const silentId = await newPickedTask("Feature Y silent");
+    const beforeSilent = getRecoverableMessages(session, reviewerId).length;
+    const silent = await taskTool.execute(devCtx, { action: "review", id: silentId, summary: "done @Reviewer", notifyTarget: "none" });
+    assert.doesNotMatch(silent.text, /Notified:/);
+    assert.equal(getRecoverableMessages(session, reviewerId).length, beforeSilent);
   });
 
   it("block with notifyTarget=agents notifies and keeps assignment", async () => {

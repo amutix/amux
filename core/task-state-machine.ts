@@ -94,9 +94,8 @@ export interface TaskTransitionDefinition {
 
 // ─── Transition table ────────────────────────────────────────
 //
-// Behavior-preserving: every row codifies what `task-service.ts` already
-// enforces via inline guards. Notification intent is declared for future
-// slices but not consumed in slice 1.
+// Every row codifies transition validation, side effects, and default
+// notification intent consumed by the neutral tool layer.
 
 const TRANSITIONS: TaskTransitionDefinition[] = [
   // assign — any agent can (re)assign; target gets nudged
@@ -135,13 +134,14 @@ const TRANSITIONS: TaskTransitionDefinition[] = [
       { type: "reserve-files", reason: "task-id-title" },
     ],
   },
-  // review — only the implementer (assignee) can mark ready
+  // review — only the implementer (assignee) can mark ready; ready-for-review
+  // is an attention-worthy handoff, so subscribers are notified by default.
   {
     action: "review",
     from: ["in-progress"],
     to: "review",
     ownership: "assignee",
-    defaultNotify: { mode: "none" },
+    defaultNotify: { mode: "subscribers" },
     activity: { type: "review" },
     sideEffects: [
       { type: "release-files" },

@@ -94,7 +94,7 @@ interface TaskParams {
   silent?: boolean;
   /** For list/show: opt into verbose summaries, spec previews, and full comment/activity history. Defaults false. */
   full?: boolean;
-  /** For pick/review/done/drop/block: notify targeted agents about the transition. Defaults to none (silent). */
+  /** For pick/review/done/drop/block: notify targeted agents about the transition. Review defaults to subscribers; others default silent. */
   notifyTarget?: NotifyTargetMode;
   /** For pick/review/done/drop/block with notifyTarget=agents: explicit same-session agent names to notify. */
   notifyAgents?: string[];
@@ -107,11 +107,19 @@ function senderFromContext(ctx: AmutixToolContext): NotificationSender {
   return { id: ctx.agentId, name: ctx.agentName, roleName: ctx.roleName, session: ctx.session };
 }
 
+function defaultNotifyTargetForAction(action: LifecycleTransitionAction): ReturnType<typeof resolveNotifyOverride> {
+  // Ready-for-review is a handoff by definition. Use task subscribers (creator,
+  // commenters, mentions, etc.) as the low-noise default; callers can still
+  // pass notifyTarget:"none" or a more specific target explicitly.
+  if (action === "review") return { mode: "subscribers" };
+  return null;
+}
+
 /**
- * Resolve and deliver a lifecycle-transition notification if the caller supplied
- * a `notifyTarget` override. Returns the names of notified recipients.
- * Silent by default (no override → no plans → no delivery). Assignment and
- * task comments have their own notification paths and do not use this helper.
+ * Resolve and deliver a lifecycle-transition notification. Explicit
+ * `notifyTarget` overrides win; otherwise review defaults to subscribers and
+ * other lifecycle transitions stay silent. Assignment and task comments have
+ * their own notification paths and do not use this helper.
  */
 async function maybeNotifyTransition(
   ctx: AmutixToolContext,
@@ -120,9 +128,8 @@ async function maybeNotifyTransition(
   p: TaskParams,
   preview?: string,
 ): Promise<string[]> {
-  const target = resolveNotifyOverride(p.notifyTarget, p.notifyAgents);
-  // No override supplied (or explicitly none) → silent. This preserves the
-  // pre-existing default: lifecycle transitions other than assign do not notify.
+  const override = resolveNotifyOverride(p.notifyTarget, p.notifyAgents);
+  const target = override ?? defaultNotifyTargetForAction(action);
   if (!target || target.mode === "none") return [];
 
   const plans = await planTransitionNotifications({
@@ -394,7 +401,7 @@ export const taskTool: AmutixToolDefinition<TaskParams> = {
     "Picking a task auto-reserves its files. Done/drop auto-releases them.",
     "Use action 'review' when implementation is ready for review/integration, and include commit/branch, diff summary, tests run, and known risks in summary.",
     "Use action 'done' when reviewed/integrated/verified; reviewers should inspect spec + diff + tests before completing.",
-    "For pick/review/done/drop/block, pass notifyTarget (and notifyAgents) to wake up targeted agents about a transition (e.g. a ready-for-review or blocker handoff) without reassigning the task. Default is silent; assignment and comments use their own notification paths.",
+    "For pick/review/done/drop/block, pass notifyTarget (and notifyAgents) to wake up targeted agents about a transition without reassigning the task. Review defaults to subscribers; other lifecycle transitions default silent. Assignment and comments use their own notification paths.",
     "Use action 'assign' to delegate executable leaf work items to same-session agents  -- the assignee accepts by picking",
     "Create and review high-level initiatives/milestones and their children before assigning executable child work.",
     "It is OK to assign all defined leaf work up front; use dependsOn to enforce order, and assignees should pick one item at a time after completing the current item.",
@@ -436,7 +443,7 @@ export const taskTool: AmutixToolDefinition<TaskParams> = {
       notify: optionalBoolProp("For comment: notify task subscribers (default true). Set false for silent comments."),
       silent: optionalBoolProp("For comment: if true, do not notify task subscribers."),
       full: optionalBoolProp("For list/show: opt into verbose summaries, spec preview, and full comment/activity history. Default false keeps output compact."),
-      notifyTarget: enumProp(NOTIFY_TARGETS, "For pick/review/done/drop/block: notification target mode. Default is silent/no notification."),
+      notifyTarget: enumProp(NOTIFY_TARGETS, "For pick/review/done/drop/block: notification target mode. Review defaults to subscribers; others default silent/no notification."),
       notifyAgents: {
         type: "array",
         description: "Agent names or IDs for lifecycle transition notifications when notifyTarget=agents. Same-session only.",

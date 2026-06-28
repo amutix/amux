@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Ready-for-review transitions now notify task subscribers by default, so reviewers/owners get an attention wake without requiring the implementer to remember `notifyTarget`; explicit `notifyTarget: "none"` still suppresses delivery.
+
 ## 2.1.0 (2026-06-28)
 
 ### Added
