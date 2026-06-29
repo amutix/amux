@@ -8,6 +8,7 @@
 
 ### Changed
 
+- Made the project reference repo (`mainRepo`) fully optional — agents are no longer required to share a single repo. Workspaces are now per-agent and can target any repo independently, supporting multi-repo projects where different agents work on different repositories under the same coordination surface.
 - Reframed injected operating guidance around amutix as flexible coordination primitives rather than a rigid workflow, encouraging agent judgment and the lightest shared state that keeps teams aligned.
 - Ready-for-review transitions now notify task subscribers by default, so reviewers/owners get an attention wake without requiring the implementer to remember `notifyTarget`; explicit `notifyTarget: "none"` still suppresses delivery.
 

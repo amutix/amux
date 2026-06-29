@@ -779,19 +779,11 @@ export default function (pi: ExtensionAPI) {
 
     switch (action) {
       case "sync": {
-        if (!config.mainRepo) {
-          ctx.ui.notify("No main repo configured for this project.", "warning");
-          return;
-        }
-
-        const mainBranch = await pi.exec(
-          "git", ["-C", config.mainRepo, "branch", "--show-current"],
-          { timeout: 5000 }
-        );
-        const mainBranchName = mainBranch.stdout.trim() || "main";
+        const branch = await pi.exec("git", ["-C", workDir, "branch", "--show-current"], { timeout: 5000 });
+        const branchName = branch.stdout.trim() || "main";
 
         const fetch = await pi.exec("git", ["-C", workDir, "fetch", "origin"], { timeout: 30000 });
-        const upstream = `origin/${mainBranchName}`;
+        const upstream = `origin/${branchName}`;
         const rebase = await pi.exec("git", ["-C", workDir, "rebase", upstream], { timeout: 30000 });
 
         if (rebase.code !== 0) {
@@ -806,12 +798,10 @@ export default function (pi: ExtensionAPI) {
         const branch = await pi.exec("git", ["-C", workDir, "branch", "--show-current"], { timeout: 5000 });
         const status = await pi.exec("git", ["-C", workDir, "status", "--short"], { timeout: 5000 });
 
-        const mainBranchName = config.mainRepo
-          ? (await pi.exec("git", ["-C", config.mainRepo, "branch", "--show-current"], { timeout: 5000 })).stdout.trim() || "main"
-          : "main";
+        const upstreamBranchName = branch.stdout.trim() || "main";
 
         // Compare against remote ref for accuracy; fall back gracefully
-        const upstream = `origin/${mainBranchName}`;
+        const upstream = `origin/${upstreamBranchName}`;
         const ahead = await pi.exec("git", ["-C", workDir, "rev-list", "--count", `${upstream}..HEAD`], { timeout: 5000 });
         const behind = await pi.exec("git", ["-C", workDir, "rev-list", "--count", `HEAD..${upstream}`], { timeout: 5000 });
 
@@ -865,7 +855,7 @@ export default function (pi: ExtensionAPI) {
 
     const setRepo = flags.repo !== undefined
       ? true
-      : await ctx.ui.confirm("Main repo?", "Set current directory as the main repo?");
+      : await ctx.ui.confirm("Reference repo?", "Link a reference (main) repo? Agents can share this as a default or use their own. Fully optional for multi-repo projects.");
 
     mkdirSync(sessionDir(name), { recursive: true });
 
@@ -891,7 +881,8 @@ export default function (pi: ExtensionAPI) {
     }
 
     let msg = `Created project "${name}".`;
-    if (setRepo) msg += `\nMain repo: ${config.mainRepo}`;
+    if (setRepo) msg += `\nReference repo: ${config.mainRepo}`;
+    else msg += `\nNo single repo — agents can each have their own workspace.`;
     msg += `\nDefault Ways of Working created.`;
     msg += visionSet
       ? `\nProject vision/context set.`
@@ -939,13 +930,16 @@ export default function (pi: ExtensionAPI) {
     let workspace: string | undefined;
     const config = await readSessionConfig(session);
 
-    if (wsType === "worktree" && config.mainRepo) {
-      const plan = deriveWorktreePath(config.mainRepo, name);
+    if (wsType === "worktree") {
+      const repoPath = typeof flags.repo === "string" && flags.repo !== "current"
+        ? flags.repo
+        : config.mainRepo ?? ctx.cwd;
+      const plan = deriveWorktreePath(repoPath, name);
       const { wsPath, branchName } = plan;
 
-      const result = await pi.exec("git", ["-C", config.mainRepo, "worktree", "add", wsPath, "-b", branchName], { timeout: 30000 });
+      const result = await pi.exec("git", ["-C", repoPath, "worktree", "add", wsPath, "-b", branchName], { timeout: 30000 });
       if (result.code !== 0) {
-        const retry = await pi.exec("git", ["-C", config.mainRepo, "worktree", "add", wsPath, branchName], { timeout: 30000 });
+        const retry = await pi.exec("git", ["-C", repoPath, "worktree", "add", wsPath, branchName], { timeout: 30000 });
         if (retry.code !== 0) {
           ctx.ui.notify(`Worktree failed: ${retry.stderr}\nAgent created without workspace.`, "warning");
         } else {
@@ -956,8 +950,6 @@ export default function (pi: ExtensionAPI) {
       }
     } else if (wsType === "current") {
       workspace = ctx.cwd;
-    } else if (wsType === "worktree" && !config.mainRepo) {
-      ctx.ui.notify("No main repo configured. Use /amutix new project --repo current to set one.", "warning");
     }
 
     // Create
