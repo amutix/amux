@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added `amutix_agent` (`action: register`), a neutral tool for registering a new agent in the current project session — name, role description, optional role name, workspace, and model. Pairs with `amutix_role apply-template` so the full project/team setup is now agent-callable, not slash-command-only.
+- Added `amutix_project action=create`, which provisions a new project session directory with default Ways of Working, so agents can bootstrap a project programmatically. Validation rejects existing names and invalid characters.
 - Added `amutix_feedback`, a global product-feedback tool for agents to record amutix UX issues, friction, confusing defaults, and improvement suggestions outside any project backlog/journal.
 
 ### Changed

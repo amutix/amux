@@ -14,6 +14,8 @@ import {
   readRegistry,
   readRoles,
   removeRole,
+  registerAgent,
+  newAgentId,
 } from "../registry.ts";
 import {
   applyTeamTemplate,
@@ -436,5 +438,69 @@ export const feedbackTool: AmutixToolDefinition<FeedbackParams> = {
       default:
         throw new Error(`Unknown action: ${params.action}`);
     }
+  },
+};
+
+interface AgentParams {
+  action: "register";
+  name?: string;
+  role?: string;
+  roleName?: string;
+  cwd?: string;
+  model?: string;
+}
+
+export const agentTool: AmutixToolDefinition<AgentParams> = {
+  name: "amutix_agent",
+  aliases: ["amux_agent"],
+  label: "Agent Registration",
+  description:
+    "Register a new agent in the current project session. " +
+    "Agents are defined by name, role, and workspace and can join later via /amutix join. " +
+    "Use amutix_role apply-template first, then amutix_agent to register agent entries.",
+  promptSnippet: "Register agents in the current project session",
+  promptGuidelines: [
+    "Use amutix_agent action='register' to create agent entries after roles and templates are in place.",
+    "Agents can share repos or use separate workspaces — set cwd to the git worktree or current directory.",
+    "Agent registration is persistent; agents go online when they /amutix join.",
+  ],
+  inputSchema: objectSchema(
+    {
+      action: enumProp(["register"] as const, "Always 'register' — creates an agent entry"),
+      name: optionalStringProp("Agent display name (required)"),
+      role: optionalStringProp("Short role description (required) — e.g. 'Architect for fec-platform'"),
+      roleName: optionalStringProp("Name of an existing role definition (from amutix_role)"),
+      cwd: optionalStringProp("Working directory / git worktree for this agent"),
+      model: optionalStringProp("Preferred model for this agent (e.g. anthropic/claude-sonnet-4)"),
+    },
+    ["action"],
+  ),
+
+  async execute(ctx, params): Promise<AmutixToolResult> {
+    if (!params.name) throw new Error("Agent name is required for register.");
+    if (!params.role) throw new Error("Role description is required for register.");
+    const name = params.name.trim();
+    if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+      throw new Error(`Agent name "${name}" contains invalid characters. Use letters, digits, hyphens, and underscores only.`);
+    }
+    const agent: AgentInfo = {
+      id: newAgentId(),
+      name,
+      session: ctx.session,
+      role: params.role,
+      roleName: params.roleName,
+      cwd: params.cwd || ctx.cwd || process.cwd(),
+      model: params.model,
+      pid: 0,
+      status: "offline",
+      registeredAt: new Date().toISOString(),
+      lastHeartbeat: new Date().toISOString(),
+    };
+    await registerAgent(ctx.session, agent);
+    const roleNote = params.roleName ? ` (${params.roleName})` : "";
+    return {
+      text: `Agent "${name}"${roleNote} registered in session "${ctx.session}".\nThey can join with: /amutix join`,
+      details: { agent },
+    };
   },
 };

@@ -89,6 +89,7 @@ import {
   reserveTool,
   journalTool,
   feedbackTool,
+  agentTool,
   taskTool,
   objectSchema,
   optionalBoolProp,
@@ -3221,6 +3222,7 @@ describe("Neutral tool registry (SPEC-18)", () => {
     assert.ok(names.includes("amutix_reserve"));
     assert.ok(names.includes("amutix_journal"));
     assert.ok(names.includes("amutix_feedback"));
+    assert.ok(names.includes("amutix_agent"));
     // Canonical name lookups resolve to canonical name
     assert.equal(getAmutixTool("amutix_list")!.name, "amutix_list");
     assert.equal(getAmutixTool("amutix_project")!.name, "amutix_project");
@@ -3231,10 +3233,12 @@ describe("Neutral tool registry (SPEC-18)", () => {
     assert.equal(getAmutixTool("amutix_reserve")!.name, "amutix_reserve");
     assert.equal(getAmutixTool("amutix_journal")!.name, "amutix_journal");
     assert.equal(getAmutixTool("amutix_feedback")!.name, "amutix_feedback");
+    assert.equal(getAmutixTool("amutix_agent")!.name, "amutix_agent");
     // Legacy alias names resolve to canonical name (back-compat, removed in 3.0)
     assert.equal(getAmutixTool("amutix_list")!.name, "amutix_list");
     assert.equal(getAmutixTool("amutix_task")!.name, "amutix_task");
     assert.equal(getAmutixTool("amux_feedback")!.name, "amutix_feedback");
+    assert.equal(getAmutixTool("amux_agent")!.name, "amutix_agent");
     assert.equal(normalizeToolName("amutix_role"), "amutix_role");
     assert.equal(normalizeToolName("amutix_role"), "amutix_role");
     assert.equal(getAmutixTool("nonexistent"), undefined);
@@ -3267,8 +3271,13 @@ describe("Neutral tool registry (SPEC-18)", () => {
     assert.equal(projectTool.name, "amutix_project");
     assert.equal(projectTool.label, "Project Vision/Context");
     assert.deepEqual(projectTool.inputSchema.required, ["action"]);
-    assert.deepEqual(projectTool.inputSchema.properties.action.enum, ["show", "set", "append", "clear", "path"]);
+    assert.deepEqual(projectTool.inputSchema.properties.action.enum, ["show", "set", "append", "clear", "path", "create"]);
     assert.ok(projectTool.promptGuidelines?.some((g) => g.includes("project vision/context")));
+
+    assert.equal(agentTool.name, "amutix_agent");
+    assert.equal(agentTool.label, "Agent Registration");
+    assert.deepEqual(agentTool.inputSchema.required, ["action"]);
+    assert.deepEqual(agentTool.inputSchema.properties.action.enum, ["register"]);
 
     assert.equal(wowTool.name, "amutix_wow");
     assert.equal(wowTool.label, "Ways of Working");
@@ -3403,6 +3412,59 @@ describe("Neutral tool handlers (SPEC-18 pilot)", () => {
     const clear = await projectTool.execute(ctx, { action: "clear" });
     assert.equal(clear.text, "Project vision/context cleared. Changes affect future agent prompts.");
     assert.equal((clear.details as { content: string }).content, "");
+  });
+
+  it("amutix_project action=create sets up a new project session with default Ways of Working", async () => {
+    const newProject = testSession("project-create");
+    cleanupSession(newProject); // ensure clean slate
+    const createCtx: AmutixToolContext = { ...ctx, session: ctx.session };
+    const created = await projectTool.execute(createCtx, { action: "create", content: newProject });
+    assert.ok(created.text.includes(`Created project "${newProject}"`));
+    const dir = (created.details as { path: string }).path;
+    assert.ok(existsSync(dir), "project session dir should exist after create");
+    // Default Ways of Working is bootstrapped on create.
+    const wow = await readWaysOfWorking(newProject);
+    assert.ok(wow && wow.length > 0, "default Ways of Working should be created");
+
+    // Re-create on an existing project should fail.
+    await assert.rejects(
+      () => projectTool.execute(createCtx, { action: "create", content: newProject }),
+      /already exists/i,
+    );
+    // Invalid names are rejected.
+    await assert.rejects(
+      () => projectTool.execute(createCtx, { action: "create", content: "bad name!" }),
+      /invalid characters/i,
+    );
+    cleanupSession(newProject);
+  });
+
+  it("amutix_agent action=register creates a findable agent entry", async () => {
+    const regCtx: AmutixToolContext = { ...ctx };
+    const res = await agentTool.execute(regCtx, {
+      action: "register",
+      name: "RegAgent",
+      role: "Backend developer",
+      roleName: "developer",
+      cwd: "/tmp",
+    });
+    assert.ok(res.text.includes("registered in session"));
+    const found = await findByName(ctx.session, "RegAgent");
+    assert.ok(found, "registered agent should be findable by name");
+    assert.equal(found!.role, "Backend developer");
+    assert.equal(found!.roleName, "developer");
+    assert.equal(found!.status, "offline"); // registered but not yet joined
+
+    // Missing required fields are rejected.
+    await assert.rejects(() => agentTool.execute(regCtx, { action: "register", role: "x" }), /name is required/i);
+    await assert.rejects(() => agentTool.execute(regCtx, { action: "register", name: "NoRole" }),
+      /role description is required/i,
+    );
+    // Invalid characters in name are rejected.
+    await assert.rejects(
+      () => agentTool.execute(regCtx, { action: "register", name: "bad name", role: "x" }),
+      /invalid characters/i,
+    );
   });
 
   it("amutix_wow neutral handler preserves show/set/append/path/clear behavior", async () => {

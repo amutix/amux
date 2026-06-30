@@ -19,7 +19,14 @@ import {
   appendWaysOfWorking,
   clearWaysOfWorking,
   wowPath,
+  ensureDefaultWaysOfWorking,
 } from "../ways-of-working.ts";
+import {
+  sessionDir,
+  sessionFile,
+} from "../storage.ts";
+import { mkdirSync, existsSync } from "node:fs";
+import { writeSessionConfig, type SessionConfig } from "../registry.ts";
 import {
   type AmutixToolContext,
   type AmutixToolDefinition,
@@ -32,8 +39,17 @@ import {
 const ARTIFACT_ACTIONS = ["show", "set", "append", "clear", "path"] as const;
 type ArtifactAction = typeof ARTIFACT_ACTIONS[number];
 
+/** Project tool adds a `create` action on top of the shared artifact actions. */
+const PROJECT_ACTIONS = [...ARTIFACT_ACTIONS, "create"] as const;
+type ProjectAction = typeof PROJECT_ACTIONS[number];
+
 interface ManagedArtifactParams {
   action: ArtifactAction;
+  content?: string;
+}
+
+interface ProjectParams {
+  action: ProjectAction;
   content?: string;
 }
 
@@ -88,10 +104,10 @@ async function executeManagedArtifactTool(
   }
 }
 
-function managedArtifactSchema(contentDescription: string) {
+function managedArtifactSchema(contentDescription: string, actions: readonly string[] = ARTIFACT_ACTIONS) {
   return objectSchema(
     {
-      action: enumProp(ARTIFACT_ACTIONS, "Action to perform"),
+      action: enumProp(actions, "Action to perform"),
       content: optionalStringProp(contentDescription),
     },
     ["action"],
@@ -100,23 +116,43 @@ function managedArtifactSchema(contentDescription: string) {
 
 // ─── amutix_project ────────────────────────────────────────────
 
-export const projectTool: AmutixToolDefinition<ManagedArtifactParams> = {
+/** Create a new project session directory (action=create). */
+async function handleCreateProject(
+  params: ProjectParams,
+): Promise<AmutixToolResult> {
+  const name = params.content?.trim();
+  if (!name) throw new Error("Project name is required for create (pass as 'content').");
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error(`Project name "${name}" contains invalid characters. Use letters, digits, hyphens, and underscores only.`);
+  const dir = sessionDir(name);
+  if (existsSync(dir)) throw new Error(`Project "${name}" already exists.`);
+  mkdirSync(dir, { recursive: true });
+  const config: SessionConfig = { createdAt: new Date().toISOString() };
+  await writeSessionConfig(name, config);
+  ensureDefaultWaysOfWorking(name);
+  return {
+    text: `Created project "${name}". Default Ways of Working created. Next: amutix_project action=set to set the vision, then amutix_role apply-template to set up the team.`,
+    details: { session: name, path: dir },
+  };
+}
+
+export const projectTool: AmutixToolDefinition<ProjectParams> = {
   name: "amutix_project",
   aliases: ["amux_project"],
   label: "Project Vision/Context",
   description:
     "Manage the current project's vision/context alignment artifact. " +
-    "Actions: show, set, append, clear, path. Stored as artifacts/project/CONTEXT.md " +
-    "and injected into future agent prompts.",
-  promptSnippet: "Manage project vision/context (show, set, append, clear, path)",
+    "Actions: show, set, append, clear, path, create. Stored as artifacts/project/CONTEXT.md " +
+    "and injected into future agent prompts. Use create to set up a new project session directory. Main repo is optional for multi-repo projects.",
+  promptSnippet: "Manage project vision/context (create, show, set, append, clear, path)",
   promptGuidelines: [
     "Use amutix_project to set a project vision/context during setup before assigning work.",
     "Prefer amutix_project over directly editing CONTEXT.md; the file is an implementation detail.",
     "Keep project context concise: goal, constraints, working principles, and north star.",
   ],
-  inputSchema: managedArtifactSchema("Project vision/context text (required for set and append)"),
+  inputSchema: managedArtifactSchema("Project vision/context text (required for set and append)", PROJECT_ACTIONS),
   execute(ctx, params) {
-    return executeManagedArtifactTool(ctx, params, {
+    if (params.action === "create") return handleCreateProject(params);
+    return executeManagedArtifactTool(ctx, params as ManagedArtifactParams, {
       emptyText: "No project vision/context set. Use amutix_project action=set to create one.",
       showHeader: "Project vision/context",
       setText: "Project vision/context set. Changes affect future agent prompts.",

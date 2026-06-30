@@ -425,8 +425,9 @@ export default function (pi: ExtensionAPI) {
 
   // Neutral tool registry: schema/result bridging and registration live in
   // pi/tool-adapter.ts; tool product logic is framework-neutral in core/tools.
-  // (amutix_artifacts, amutix_list, amutix_project, and amutix_wow are migrated;
-  // other tools remain inline pending SPEC-18 slices 3-5.)
+  // All amutix tools are migrated to the neutral registry; slash commands for
+  // project/agent creation remain here as a convenience, but the underlying
+  // actions are also agent-callable via amutix_project create / amutix_agent.
   registerAmutixTools(pi, allAmutixTools(), () => {
     if (!mySession || !myId || !myName) {
       throw new Error("Not registered. Use /amutix new agent --join to set up, then /amutix join.");
@@ -443,9 +444,9 @@ export default function (pi: ExtensionAPI) {
   // - Neutral-registry tools (all migrated) ---------------------
   // All amutix tools (amutix_artifacts, amutix_list, amutix_project, amutix_wow,
   // amutix_send, amutix_broadcast, amutix_discussion, amutix_role, amutix_reserve,
-  // amutix_journal, amutix_task) are registered via the neutral tool registry
-  // bridge (pi/tool-adapter.ts). See allAmutixTools() in core/tools; slash
-  // commands remain in this Pi adapter.
+  // amutix_journal, amutix_feedback, amutix_agent, amutix_task) are registered
+  // via the neutral tool registry bridge (pi/tool-adapter.ts). See
+  // allAmutixTools() in core/tools; slash commands remain in this Pi adapter.
 
   // -- Commands -------------------------------------------------
 
