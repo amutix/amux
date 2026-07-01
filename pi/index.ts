@@ -85,6 +85,7 @@ import {
   toWorkspaceRelative,
   formatReservationConflict,
   reservationTaskId,
+  getReservations,
 } from "../core/reservations";
 import {
   readBacklog,
@@ -97,7 +98,7 @@ import {
   readTaskComments,
 } from "../core/task-comments";
 import { deriveWorktreePath } from "../core/setup-service";
-import { detectTeamTopologyRisks } from "../core/team-service";
+import { detectTeamTopologyRisks, getTeamTopology } from "../core/team-service";
 import {
   projectContextPath,
   readProjectContext,
@@ -116,6 +117,7 @@ import {
 import {
   renderTaskDetails,
   renderProgressSummary,
+  renderProjectOverview,
   renderAgentPresence,
   renderAgentWorkState,
 } from "../core/renderers";
@@ -491,7 +493,7 @@ export default function (pi: ExtensionAPI) {
           return handleProject(parts.slice(1), ctx);
         default:
           ctx.ui.notify(
-            `Unknown: /amutix ${sub}\n\nCanonical:\n  /amutix project       Vision, WoW, roles/templates\n  /amutix team          Agents, availability, workspaces\n  /amutix work          Progress and backlog views\n  /amutix prompt        Preview the amutix coordination block\n\nShortcuts:\n  /amutix join          Join a project as an agent\n  /amutix leave         Leave current project\n  /amutix progress      Alias for /amutix work\n  /amutix show <id>     Alias for /amutix work show <id>\n  /amutix status set    Set availability`,
+            `Unknown: /amutix ${sub}\n\nCanonical:\n  /amutix project       Project overview, vision, WoW\n  /amutix team          Agents, availability, workspaces\n  /amutix work          Progress and backlog views\n  /amutix prompt        Preview the amutix coordination block\n\nShortcuts:\n  /amutix join          Join a project as an agent\n  /amutix leave         Leave current project\n  /amutix progress      Alias for /amutix work\n  /amutix show <id>     Alias for /amutix work show <id>\n  /amutix status set    Set availability`,
             "warning"
           );
       }
@@ -542,7 +544,7 @@ export default function (pi: ExtensionAPI) {
       : "";
 
     ctx.ui.notify(
-      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}${riskText}\n\nCanonical:\n  /amutix project       Vision, WoW, roles/templates\n  /amutix team          Agents, availability, workspaces\n  /amutix work          Progress and backlog views\n  /amutix prompt        Prompt/debug preview\n\nShortcuts:\n  /amutix join          Switch project or agent\n  /amutix leave         Leave project\n  /amutix progress      Alias for /amutix work\n  /amutix show <id>     Alias for /amutix work show <id>`,
+      `Project: ${mySession} | Agent: ${myName} (${myRoleName || "no role"})${availStr}${taskLine}\n\nOnline:\n${agentLines.join("\n")}${riskText}\n\nCanonical:\n  /amutix project       Project overview, vision, WoW\n  /amutix team          Agents, availability, workspaces\n  /amutix work          Progress and backlog views\n  /amutix prompt        Prompt/debug preview\n\nShortcuts:\n  /amutix join          Switch project or agent\n  /amutix leave         Leave project\n  /amutix progress      Alias for /amutix work\n  /amutix show <id>     Alias for /amutix work show <id>`,
       "info"
     );
   }
@@ -1068,8 +1070,39 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  async function buildProjectOverview(session: string): Promise<string> {
+    const [tasks, topology, risks, reservations] = await Promise.all([
+      readBacklog(session),
+      getTeamTopology(session),
+      detectTeamTopologyRisks(session),
+      getReservations(session),
+    ]);
+    return renderProjectOverview({
+      session,
+      projectContext: readProjectContext(session),
+      waysOfWorking: readWaysOfWorking(session),
+      tasks,
+      topology,
+      topologyRisks: risks,
+      reservations: Object.entries(reservations).map(([path, reservation]) => ({
+        path,
+        agent: reservation.agent,
+        reason: reservation.reason,
+        since: reservation.since,
+      })),
+    });
+  }
+
   async function handleProject(args: string[], ctx: ExtensionContext): Promise<void> {
-    const sub = args[0] || "show";
+    const sub = args[0] || "overview";
+    if (!mySession) {
+      ctx.ui.notify("Not in a project. Use /amutix join first.", "warning");
+      return;
+    }
+    if (sub === "" || sub === "show" || sub === "overview") {
+      ctx.ui.notify(await buildProjectOverview(mySession), "info");
+      return;
+    }
     if (sub === "vision" || sub === "context") {
       return handleContext(args.slice(1), ctx);
     }
@@ -1078,7 +1111,7 @@ export default function (pi: ExtensionAPI) {
     }
     if (sub === "help") {
       ctx.ui.notify(
-        `Usage:\n  /amutix project                  Show project vision/context\n  /amutix project vision ...       Manage vision/context\n  /amutix project wow ...          Manage Ways of Working\n\nShortcuts: /amutix wow, /amutix project context ...`,
+        `Usage:\n  /amutix project                  Project overview dashboard\n  /amutix project overview         Project overview dashboard\n  /amutix project vision ...       Manage vision/context\n  /amutix project wow ...          Manage Ways of Working\n\nShortcuts: /amutix wow, /amutix project context ...`,
         "info"
       );
       return;

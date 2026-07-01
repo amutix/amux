@@ -120,7 +120,7 @@ Host adapters should prefer `allAmutixTools()` so Pi and future runtimes share t
 amutix work [--session <name>]         # Project progress overview
 amutix work show <ITEM-ID> [--session <name>]  # Item details + comments
 amutix team [--session <name>]         # Agent availability
-amutix project [--session <name>]      # Vision/WoW/role overview
+amutix project [--session <name>]      # Project dashboard: vision, WoW, team, work, risks
 amutix list [--session <name>]         # Backlog listing
 amutix progress/show/status            # Compatibility aliases
 amutix --help                           # Show available commands
@@ -170,7 +170,7 @@ amutix exposes a small Pi command surface plus framework-neutral tools:
 | Surface | Purpose | Examples |
 |---------|---------|----------|
 | Setup/join | Create projects/agents and join an identity | `/amutix new project myapp`, `/amutix new agent Dev --role developer`, `/amutix join`, `/amutix leave` |
-| Project alignment | Vision/context and Ways of Working | `/amutix project`, `/amutix project vision set ...`, `/amutix wow`, `/amutix project wow ...` |
+| Project overview/alignment | Dashboard, vision/context, and Ways of Working | `/amutix project`, `/amutix project vision set ...`, `/amutix wow`, `/amutix project wow ...` |
 | Work | Progress and backlog item details | `/amutix work`, `/amutix work show TASK-01`, `/amutix progress`, `/amutix show TASK-01` |
 | Team | Agent roster, availability, and workspace helpers | `/amutix team`, `/amutix status set focus "reviewing"`, `/amutix workspace` |
 | Prompt/debug | Preview the amutix-appended coordination block | `/amutix prompt`, `/amutix prompt workState`, `/amutix prompt all` |
@@ -180,7 +180,7 @@ amutix exposes a small Pi command surface plus framework-neutral tools:
 
 ```bash
 /amutix new project <name>              # Create a project/session from Pi
-/amutix project                         # Show current project vision/context
+/amutix project                         # Project dashboard: vision, WoW, agents, work, reservations, topology risks
 /amutix project vision set <t>          # Replace project vision/context
 /amutix project vision append <t>       # Append to project vision/context
 /amutix project vision edit             # Open editor to edit CONTEXT.md

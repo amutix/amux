@@ -12,6 +12,7 @@ import { unmetDependencies } from "./backlog.ts";
 import { formatTaskComment } from "./task-comments.ts";
 import { formatTimestamp, truncatePreview } from "./storage.ts";
 import type { AmutixNextDetails } from "./next.ts";
+import type { TeamTopologyRisk, TeamTopologyView } from "./team-service.ts";
 
 // ─── amutix_next rendering contract ──────────────────────────
 
@@ -83,6 +84,100 @@ export function renderAmutixNextDigest(input: RenderAmutixNextDigestInput): stri
   }
 
   lines.push("\nDetails contain the structured digest; pull task/discussion/reservation bodies only when needed.");
+  return lines.join("\n");
+}
+
+// ─── Project overview ────────────────────────────────────────
+
+export interface ProjectOverviewReservationRef {
+  path: string;
+  agent: string;
+  reason?: string;
+  since?: string;
+}
+
+export interface ProjectOverviewInput {
+  session: string;
+  projectContext?: string | null;
+  waysOfWorking?: string | null;
+  tasks: BacklogItem[];
+  topology: TeamTopologyView;
+  topologyRisks?: TeamTopologyRisk[];
+  reservations?: ProjectOverviewReservationRef[];
+}
+
+function firstContentLine(text?: string | null): string | null {
+  if (!text?.trim()) return null;
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))[0] ?? null;
+}
+
+/** Render a concise human-facing project dashboard for `/amutix project` and CLI `amutix project`. */
+export function renderProjectOverview(input: ProjectOverviewInput): string {
+  const { session, tasks, topology } = input;
+  const risks = input.topologyRisks || [];
+  const reservations = input.reservations || [];
+  const lines: string[] = [`Project: ${session}`];
+
+  const visionLine = firstContentLine(input.projectContext);
+  lines.push(`Vision: ${visionLine ? truncatePreview(visionLine, 180) : "(not set)"}`);
+  lines.push(`Ways of Working: ${input.waysOfWorking?.trim() ? "set" : "(not set)"}`);
+  if (topology.mainRepo) lines.push(`Main repo: ${topology.mainRepo}`);
+
+  const counts: Record<string, number> = {};
+  for (const task of tasks) counts[task.status] = (counts[task.status] || 0) + 1;
+  const activeStatuses = ["todo", "assigned", "in-progress", "review", "blocked"];
+  const openWork = activeStatuses.reduce((sum, status) => sum + (counts[status] || 0), 0);
+  const statusText = ["todo", "assigned", "in-progress", "review", "blocked", "done"]
+    .filter((status) => counts[status])
+    .map((status) => `${status} ${counts[status]}`)
+    .join(", ") || "none";
+  lines.push(`Work: ${openWork} open (${statusText})`);
+
+  const roleNames = Object.keys(topology.roles).sort();
+  lines.push(`Roles: ${roleNames.length ? roleNames.join(", ") : "(none)"}`);
+
+  lines.push("\nAgents:");
+  if (topology.agents.length === 0) {
+    lines.push("- (none registered)");
+  } else {
+    for (const agent of topology.agents) {
+      const online = agent.effectivelyOnline ? "online" : "offline/stale";
+      const availability = agent.availability ? `/${agent.availability}` : "";
+      const work = [
+        agent.work.active.length ? `${agent.work.active.length} active` : "",
+        agent.work.assigned.length ? `${agent.work.assigned.length} assigned` : "",
+        agent.work.review.length ? `${agent.work.review.length} review` : "",
+        agent.work.blocked.length ? `${agent.work.blocked.length} blocked` : "",
+      ].filter(Boolean).join(", ") || "no owned work";
+      const workspace = agent.workspace ? ` workspace=${agent.workspace}` : "";
+      lines.push(`- ${agent.name} (${agent.roleName || agent.role}) [${online}${availability}] ${work}; cwd=${agent.cwd}${workspace}`);
+    }
+  }
+
+  if (reservations.length > 0) {
+    lines.push(`\nActive reservations (${reservations.length}):`);
+    for (const res of reservations.slice(0, 5)) {
+      const reason = res.reason ? ` — ${truncatePreview(res.reason, 90)}` : "";
+      lines.push(`- ${res.path}: ${res.agent}${reason}`);
+    }
+    if (reservations.length > 5) lines.push(`- …and ${reservations.length - 5} more`);
+  } else {
+    lines.push("\nActive reservations: none");
+  }
+
+  if (risks.length > 0) {
+    lines.push(`\nTopology risks (${risks.length}):`);
+    for (const risk of risks.slice(0, 5)) lines.push(`- ${risk.severity} ${risk.kind}: ${truncatePreview(risk.summary, 160)}`);
+    if (risks.length > 5) lines.push(`- …and ${risks.length - 5} more`);
+  } else {
+    lines.push("\nTopology risks: none detected");
+  }
+
+  lines.push("\nNext commands: /amutix work · /amutix team · /amutix project vision show · /amutix wow");
+  lines.push("Details: amutix_task summary · amutix_agent validate-team · amutix_reserve list");
   return lines.join("\n");
 }
 

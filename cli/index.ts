@@ -7,13 +7,14 @@
  */
 
 import { readBacklog } from "../core/backlog.ts";
-import { readRegistry, readRoles, isEffectivelyOnline } from "../core/registry.ts";
-import { renderProgressSummary, renderTaskDetails, renderTaskListRow } from "../core/renderers.ts";
+import { readRegistry, isEffectivelyOnline } from "../core/registry.ts";
+import { renderProgressSummary, renderProjectOverview, renderTaskDetails, renderTaskListRow } from "../core/renderers.ts";
 import { serviceGetTaskShowData } from "../core/task-service.ts";
 import { listSessions } from "../core/storage.ts";
 import { readProjectContext } from "../core/project-context.ts";
 import { readWaysOfWorking } from "../core/ways-of-working.ts";
-import { detectTeamTopologyRisks } from "../core/team-service.ts";
+import { getReservations } from "../core/reservations.ts";
+import { detectTeamTopologyRisks, getTeamTopology } from "../core/team-service.ts";
 
 // ─── Arg Parsing ─────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ Commands:
   work                  Project progress overview
   work show <ITEM-ID>   Item details with comments and spec preview
   team                  Online agents and availability
-  project               Project vision/WoW/role overview
+  project               Project dashboard: vision, WoW, team, work, risks
   list                  Backlog listing
   task list             Backlog listing (explicit task namespace)
   progress              Alias for work
@@ -187,10 +188,26 @@ async function main(): Promise<void> {
 
     case "project": {
       const s = await requireSession();
-      const context = readProjectContext(s) || "(none)";
-      const wow = readWaysOfWorking(s) || "(none)";
-      const roles = Object.keys(await readRoles(s));
-      console.log(`Project: ${s}\n\nVision/context:\n${context}\n\nWays of Working:\n${wow}\n\nRoles: ${roles.length ? roles.join(", ") : "(none)"}`);
+      const [tasks, topology, risks, reservations] = await Promise.all([
+        readBacklog(s),
+        getTeamTopology(s),
+        detectTeamTopologyRisks(s),
+        getReservations(s),
+      ]);
+      console.log(renderProjectOverview({
+        session: s,
+        projectContext: readProjectContext(s),
+        waysOfWorking: readWaysOfWorking(s),
+        tasks,
+        topology,
+        topologyRisks: risks,
+        reservations: Object.entries(reservations).map(([path, reservation]) => ({
+          path,
+          agent: reservation.agent,
+          reason: reservation.reason,
+          since: reservation.since,
+        })),
+      }));
       break;
     }
 

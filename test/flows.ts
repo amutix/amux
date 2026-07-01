@@ -3141,6 +3141,26 @@ describe("CLI read-only commands", () => {
     assert.ok(out.includes("Topology risks"));
     assert.ok(out.includes("missing-workspace") || out.includes("implementation-in-main-worktree"));
   });
+
+  it("renders project overview dashboard", async () => {
+    writeProjectContext(session, "Build a reliable local coordination layer for agent teams.");
+    writeWaysOfWorking(session, "Review before done. Use task comments for task-scoped coordination.");
+    await addRole(session, { name: "developer", instructions: "Build and test." });
+    await reserve(session, ["README.md"], "cli-reviewer", "CliAgent", "checking docs");
+
+    const out = runCli("project", "--session", session);
+    assert.ok(out.includes(`Project: ${session}`));
+    assert.ok(out.includes("Vision: Build a reliable local coordination layer"));
+    assert.ok(out.includes("Ways of Working: set"));
+    assert.ok(out.includes("Work:"));
+    assert.ok(out.includes("Roles: developer"));
+    assert.ok(out.includes("Agents:"));
+    assert.ok(out.includes("CliAgent"));
+    assert.ok(out.includes("Active reservations"));
+    assert.ok(out.includes("README.md"));
+    assert.ok(out.includes("Topology risks"));
+    assert.ok(out.includes("Next commands:"));
+  });
 });
 
 describe("Message staleness metadata", () => {
